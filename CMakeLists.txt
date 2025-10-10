@@ -55,7 +55,6 @@ add_library(aureo_core INTERFACE)
 target_include_directories(aureo_core INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/source")
 target_compile_options(aureo_core INTERFACE
   -O3
-  -Ofast
   -ffast-math
   -fno-math-errno
   -funroll-loops

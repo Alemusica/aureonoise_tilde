@@ -87,6 +87,10 @@ static void reset_sequences(t_aureonoise* x)
 
 extern "C" int C74_EXPORT main(void)
 {
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
+#endif
   t_class* c = class_new("aureonoise~",
                          (method)aureonoise_new,
                          (method)aureonoise_free,
@@ -102,6 +106,9 @@ extern "C" int C74_EXPORT main(void)
 
   class_register(CLASS_BOX, c);
   s_aureonoise_class = c;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
   return 0;
 }
 
@@ -219,7 +226,14 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
   x->prev_ild = 0.0;
   x->last_gap_samples = 0.0;
   x->last_dur_samples = 0.0;
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
+#endif
   object_method(dsp64, gensym("dsp_add64"), x, reinterpret_cast<method>(aureonoise_perform64), 0, NULL);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 }
 
 void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
