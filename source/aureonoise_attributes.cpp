@@ -71,6 +71,17 @@ void aureonoise_setup_attributes(t_class* c)
   CLASS_ATTR_LABEL(c,  "ild_db",    0, "ILD ±dB max");
   CLASS_ATTR_SAVE(c,   "ild_db",    0);
 
+  CLASS_ATTR_LONG(c,   "pinna_on",  0, t_aureonoise, p_pinna_on);
+  CLASS_ATTR_ACCESSORS(c, "pinna_on", NULL, set_pinna_on);
+  CLASS_ATTR_STYLE_LABEL(c, "pinna_on", 0, "onoff", "Pinna notch on/off");
+  CLASS_ATTR_SAVE(c,   "pinna_on",  0);
+
+  CLASS_ATTR_DOUBLE(c, "pinna_depth", 0, t_aureonoise, p_pinna_depth);
+  CLASS_ATTR_ACCESSORS(c, "pinna_depth", NULL, set_pinna_depth);
+  CLASS_ATTR_FILTER_CLIP(c, "pinna_depth", 0.0, 24.0);
+  CLASS_ATTR_LABEL(c, "pinna_depth", 0, "Profondità notch pinna (dB)");
+  CLASS_ATTR_SAVE(c, "pinna_depth", 0);
+
   CLASS_ATTR_LONG  (c,  "color",     0, t_aureonoise, p_noise_color);
   CLASS_ATTR_ACCESSORS(c, "color", NULL, set_noise_color);
   CLASS_ATTR_STYLE_LABEL(c, "color", 0, "enumindex", "Colore rumore (white/pink/brown)");
@@ -206,6 +217,8 @@ t_max_err set_width(t_aureonoise* x, void*, long ac, t_atom* av)
   if (ac && av) {
     x->p_width = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
     x->pinna.width = x->p_width;
+    aureonoise_mark_pinna_dirty(x);
+    aureonoise_update_pinna_filters(x);
   }
   return MAX_ERR_NONE;
 }
@@ -305,6 +318,33 @@ t_max_err set_seed(t_aureonoise* x, void*, long ac, t_atom* av)
     x->w_pl.set_step(aureo::kInvPlastic);
 #endif
     x->noise.reset();
+  }
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_pinna_on(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) {
+    const long on = atom_getlong(av) ? 1 : 0;
+    const bool was_on = (x->p_pinna_on != 0);
+    x->p_pinna_on = on;
+    aureonoise_update_pinna_state(x);
+    const bool now_on = (x->p_pinna_on != 0);
+    if (was_on != now_on) {
+      x->pinna_notchL.clear();
+      x->pinna_notchR.clear();
+    }
+    x->pinna_enabled = now_on;
+    aureonoise_update_pinna_filters(x);
+  }
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_pinna_depth(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) {
+    x->p_pinna_depth = aureo::clamp(atom_getfloat(av), 0.0, 24.0);
+    aureonoise_update_pinna_state(x);
   }
   return MAX_ERR_NONE;
 }

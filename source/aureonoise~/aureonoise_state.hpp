@@ -37,6 +37,8 @@ struct t_aureonoise {
   double p_srcrush_amt = 0.2;
   double p_bitcrush_amt = 0.15;
   long   p_seed = 20251010;
+  long   p_pinna_on = 0;
+  double p_pinna_depth = 12.0;
 
 #if AUREO_THERMO_LATTICE
   long p_thermo = 1;
@@ -62,6 +64,20 @@ struct t_aureonoise {
   aureo::RingState ring;
   aureo::Pinna pinna;
   aureo::Biquad tone;
+  aureo::Biquad pinna_notchL;
+  aureo::Biquad pinna_notchR;
+
+  double pinna_mix = 0.0;
+  double pinna_mix_target = 0.0;
+  double pinna_depth = 12.0;
+  double pinna_freq_left = 7200.0;
+  double pinna_freq_right = 8200.0;
+  double pinna_q = 5.0;
+  double pinna_min_freq = 400.0;
+  double pinna_notch_base = 7800.0;
+  double pinna_notch_spread = 2200.0;
+  bool   pinna_enabled = false;
+  bool   pinna_filters_dirty = true;
 
   double lfo_wow_phase = 0.0;
   double lfo_flut_phase = 0.0;
@@ -85,6 +101,39 @@ struct t_aureonoise {
 #endif
 };
 
+inline void aureonoise_update_pinna_state(t_aureonoise* x)
+{
+  x->pinna_depth = aureo::clamp(x->p_pinna_depth, 0.0, 24.0);
+  x->pinna_mix_target = (x->p_pinna_on != 0) ? 1.0 : 0.0;
+}
+
+inline double aureonoise_pinna_weight(const t_aureonoise* x)
+{
+  return aureo::clamp01(x->pinna_mix) * aureo::clamp01(x->pinna_depth / 24.0);
+}
+
+inline void aureonoise_update_pinna_filters(t_aureonoise* x)
+{
+  double sr = x->sr;
+  if (sr <= 0.0) sr = 44100.0;
+  if (sr < 4000.0) sr = 4000.0;
+
+  const double width = aureo::clamp(x->p_width, 0.0, 1.0);
+  const double base = x->pinna_notch_base;
+  const double spread = x->pinna_notch_spread;
+  x->pinna_freq_left = aureo::clamp(base - 0.5 * spread * width, 1200.0, 16000.0);
+  x->pinna_freq_right = aureo::clamp(base + 0.5 * spread * width, 1200.0, 16000.0);
+
+  x->pinna_notchL.setNotch(sr, x->pinna_freq_left, x->pinna_q, x->pinna_min_freq);
+  x->pinna_notchR.setNotch(sr, x->pinna_freq_right, x->pinna_q, x->pinna_min_freq);
+  x->pinna_filters_dirty = false;
+}
+
+inline void aureonoise_mark_pinna_dirty(t_aureonoise* x)
+{
+  x->pinna_filters_dirty = true;
+}
+
 void aureonoise_setup_attributes(t_class* c);
 int  pick_prime_in_range(t_aureonoise* x, int lo, int hi, double u);
 void make_small_primes(t_aureonoise* x);
@@ -103,6 +152,8 @@ t_max_err set_glitch_mix(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_srcrush(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_bitcrush(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_seed(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_pinna_on(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_pinna_depth(t_aureonoise* x, void*, long ac, t_atom* av);
 #if AUREO_THERMO_LATTICE
 t_max_err set_thermo(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_lattice(t_aureonoise* x, void*, long ac, t_atom* av);
