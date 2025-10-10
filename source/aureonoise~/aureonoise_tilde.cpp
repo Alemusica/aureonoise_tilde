@@ -275,7 +275,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
   aureonoise_update_pinna_state(x);
   double pinna_mix = x->pinna_mix;
   const double pinna_target = x->pinna_mix_target;
-  const double pinna_depth_norm = aureo::clamp01(x->pinna_depth / 24.0);
+  const double pinna_depth_amt = aureo::clamp01(x->p_pinna_depth / 24.0);
   double mix_denom = x->sr * 0.02;
   if (mix_denom < 1.0) mix_denom = 1.0;
   const double pinna_mix_step = 1.0 / mix_denom;
@@ -462,11 +462,13 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
     }
 
     if (pinna_active) {
-      const double w = pinna_mix * pinna_depth_norm;
       const double dryL = yL;
       const double dryR = yR;
+      const double wet = pinna_mix;
+      const double depthAmt = pinna_depth_amt;
       const double wetL = x->pinna_notchL.proc(dryL);
       const double wetR = x->pinna_notchR.proc(dryR);
+      const double w = wet * depthAmt;
       const double dry_w = 1.0 - w;
       yL = dry_w * dryL + w * wetL;
       yR = dry_w * dryR + w * wetR;
