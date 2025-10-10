@@ -37,16 +37,15 @@ endif()
 # Script del Max SDK: devono essere inclusi PRIMA di creare il target
 include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-pretarget.cmake")
 
-# Sorgenti (metti qui aureonoise_tilde.cpp)
-file(GLOB SRC
-  "${CMAKE_CURRENT_LIST_DIR}/source/*.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/source/*.cc"
-  "${CMAKE_CURRENT_LIST_DIR}/source/*.cxx"
-  "${CMAKE_CURRENT_LIST_DIR}/source/*.c"
+# Sorgenti principali suddivisi per responsabilità
+set(SRC
+  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_tilde.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_attributes.cpp"
 )
 
 # Target modulo bundle .mxo: il nome DEVE essere ${C74_TARGET}
 add_library(${C74_TARGET} MODULE ${SRC})
+target_include_directories(${C74_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/source")
 set_target_properties(${C74_TARGET} PROPERTIES
   BUNDLE TRUE
   BUNDLE_EXTENSION "mxo"
