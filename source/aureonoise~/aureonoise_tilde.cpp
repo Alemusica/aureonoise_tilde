@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 #ifdef __SSE2__
 #include <xmmintrin.h>
@@ -119,6 +120,28 @@ extern "C" int C74_EXPORT main(void)
   return 0;
 }
 
+#if AUREO_THERMO_LATTICE
+void aureonoise_lattice_safe_resize(t_aureonoise* x, int X, int Y, int Z)
+{
+  if (!x) return;
+  X = std::max(2, X);
+  Y = std::max(2, Y);
+  Z = std::max(1, Z);
+  const size_t n = static_cast<size_t>(X) * static_cast<size_t>(Y) * static_cast<size_t>(Z);
+  std::vector<double> newx(n, 0.0);
+  std::vector<double> newtmp(n, 0.0);
+  if (x->lat_mu) systhread_mutex_lock(x->lat_mu);
+  x->lat.X = X;
+  x->lat.Y = Y;
+  x->lat.Z = Z;
+  x->lat.x.swap(newx);
+  x->lat.tmp.swap(newtmp);
+  x->lat_phase = 0.0;
+  x->lat_last_v = 0.0;
+  if (x->lat_mu) systhread_mutex_unlock(x->lat_mu);
+}
+#endif
+
 void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
 {
   auto* x = static_cast<t_aureonoise*>(object_alloc(s_aureonoise_class));
@@ -134,7 +157,7 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
   reset_sequences(x);
   make_small_primes(x);
   x->ring.clear();
-  x->samples_to_next = static_cast<int>(x->sr * 0.1);
+  x->samples_to_next = static_cast<int>(std::max(1.0, x->sr * 0.05));
   x->gap_elapsed = 0;
   x->sample_counter = 0;
   x->lfo_wow_phase = 0.0;
@@ -167,6 +190,8 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
   x->lat.gamma = x->p_lat_gamma;
   x->lat.sigma = x->p_lat_sigma;
   x->lat_phase = 0.0;
+  systhread_mutex_new(&x->lat_mu, 0);
+  x->lat_last_v = 0.0;
 #if AUREO_BURST_HAWKES
   x->hawkes.base = 4.0;
   x->hawkes.beta = 30.0;
@@ -181,6 +206,12 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
 void aureonoise_free(t_aureonoise* x)
 {
   dsp_free(reinterpret_cast<t_pxobject*>(x));
+#if AUREO_THERMO_LATTICE
+  if (x->lat_mu) {
+    systhread_mutex_free(x->lat_mu);
+    x->lat_mu = nullptr;
+  }
+#endif
 }
 
 void aureonoise_assist(t_aureonoise*, void*, long m, long a, char* s)
@@ -195,7 +226,7 @@ void aureonoise_clear(t_aureonoise* x)
 {
   x->ring.clear();
   for (auto& g : x->grains) g = {};
-  x->samples_to_next = static_cast<int>(x->sr * 0.1);
+  x->samples_to_next = static_cast<int>(std::max(1.0, x->sr * 0.05));
   x->gap_elapsed = 0;
   x->sample_counter = 0;
   x->noise.reset();
@@ -209,6 +240,7 @@ void aureonoise_clear(t_aureonoise* x)
   x->last_dur_samples = 0.0;
 #if AUREO_THERMO_LATTICE
   x->lat_phase = 0.0;
+  x->lat_last_v = 0.0;
 #endif
 }
 
@@ -216,7 +248,7 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
 {
   x->sr = (sr > 0 ? sr : 44100.0);
   for (auto& g : x->grains) g = {};
-  x->samples_to_next = static_cast<int>(std::max(1.0, x->sr * 0.1));
+  x->samples_to_next = static_cast<int>(std::max(1.0, x->sr * 0.05));
   x->gap_elapsed = 0;
   x->sample_counter = 0;
   x->pinna.width = x->p_width;
@@ -232,7 +264,15 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
   x->pinna_mix = x->pinna_mix_target;
   aureonoise_update_pinna_filters(x);
 #if AUREO_THERMO_LATTICE
-  x->lat_phase = 0.0;
+  aureonoise_lattice_safe_resize(x,
+                                 static_cast<int>(x->p_lat_x),
+                                 static_cast<int>(x->p_lat_y),
+                                 static_cast<int>(x->p_lat_z));
+  if (x->lat_mu) systhread_mutex_lock(x->lat_mu);
+  x->lat.eps = x->p_lat_eps;
+  x->lat.gamma = x->p_lat_gamma;
+  x->lat.sigma = x->p_lat_sigma;
+  if (x->lat_mu) systhread_mutex_unlock(x->lat_mu);
 #endif
   x->prev_pan = 0.0;
   x->prev_itd = 0.0;
@@ -292,6 +332,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 #if AUREO_THERMO_LATTICE
   const double lat_inc = aureo::clamp(x->p_lat_rate, 1.0, 2000.0) / x->sr;
 #endif
+  const double itd_scale = x->p_itd_us * 1.0e-6 * x->sr;
 
   for (long n = 0; n < sampleframes; ++n) {
     ++x->gap_elapsed;
@@ -309,7 +350,12 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
     if (x->lat_phase >= 1.0) {
       const int k = static_cast<int>(std::floor(x->lat_phase));
       const double dt = static_cast<double>(k) / std::max(1.0, x->p_lat_rate);
-      for (int i = 0; i < k; ++i) x->lat.step(x->rng);
+      bool locked = false;
+      if (x->lat_mu) locked = (systhread_mutex_trylock(x->lat_mu) == 0);
+      if (!x->lat_mu || locked) {
+        for (int i = 0; i < k; ++i) x->lat.step(x->rng);
+      }
+      if (locked && x->lat_mu) systhread_mutex_unlock(x->lat_mu);
       const double T = aureo::clamp01(x->p_T);
       x->ou_pan.sigma = 0.40 * T;
       x->ou_itd.sigma = 0.35 * T;
@@ -356,7 +402,17 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 
 #if AUREO_THERMO_LATTICE
         double lat_u = 0.5;
-        if (x->p_lattice) lat_u = 0.5 + 0.5 * std::tanh(x->lat.probe(x->w_phi.next()));
+        if (x->p_lattice) {
+          double v = x->lat_last_v;
+          bool locked_lat = false;
+          if (x->lat_mu) locked_lat = (systhread_mutex_trylock(x->lat_mu) == 0);
+          if (!x->lat_mu || locked_lat) {
+            v = x->lat.probe(x->w_phi.next());
+            x->lat_last_v = v;
+          }
+          if (locked_lat && x->lat_mu) systhread_mutex_unlock(x->lat_mu);
+          lat_u = 0.5 + 0.5 * std::tanh(v);
+        }
         const double oup = x->p_thermo ? aureo::clamp(x->ou_pan.y, -1.0, 1.0) : 0.0;
         const double oua = x->p_thermo ? aureo::map_phi_range(1.0 / aureo::kPhi, aureo::kPhi, 0.5 + 0.5 * std::tanh(x->ou_amp.y)) : 1.0;
         const double oui = x->p_thermo ? x->ou_itd.y : 0.0;
@@ -430,7 +486,10 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
       const double phase = static_cast<double>(g.age) / static_cast<double>(g.dur);
       const double env = x->field.envelope(phase, g.env);
 
-      double itd = g.itd + (vhs_mod * 0.25 * x->p_itd_us * 1.0e-6 * x->sr);
+      double itd = g.itd + (vhs_mod * 0.25 * itd_scale);
+#if AUREO_THERMO_LATTICE
+      if (x->p_lattice) itd += 0.18 * std::tanh(x->lat_last_v) * itd_scale;
+#endif
       double sL, sR;
       aureo::ring_read_stereo_itd_frac(x->ring, wi, itd, sL, sR);
       sL *= g.panL * g.gL;
