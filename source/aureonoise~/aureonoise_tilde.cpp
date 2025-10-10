@@ -528,7 +528,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
   (void)ins; (void)numins;
   double* outL = (numouts >= 1 && outs[0]) ? outs[0] : nullptr;
   double* outR = (numouts >= 2 && outs[1]) ? outs[1] : nullptr;
-  if (!outL || !outR) return;
+  if (!outL && !outR) return;
 
   aureonoise_refresh_golden_params(x);
 
@@ -876,8 +876,8 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
     yL = std::tanh(yL * aureo::kOutDrive) / aureo::kOutDrive;
     yR = std::tanh(yR * aureo::kOutDrive) / aureo::kOutDrive;
 
-    outL[n] = yL;
-    outR[n] = yR;
+    if (outL) outL[n] = yL;
+    if (outR) outR[n] = yR;
 
     wi = (wi + 1u) & aureo::kRingMask;
     ++x->sample_counter;
