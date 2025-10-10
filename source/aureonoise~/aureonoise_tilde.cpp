@@ -207,6 +207,9 @@ void aureonoise_clear(t_aureonoise* x)
   x->prev_ild = 0.0;
   x->last_gap_samples = 0.0;
   x->last_dur_samples = 0.0;
+#if AUREO_THERMO_LATTICE
+  x->lat_phase = 0.0;
+#endif
 }
 
 void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long, long)
