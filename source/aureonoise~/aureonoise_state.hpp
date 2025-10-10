@@ -10,6 +10,7 @@ extern "C" {
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cmath>
 
 #include "aureo_core/aureo_binaural.hpp"
 #include "aureo_core/aureo_config.hpp"
@@ -104,6 +105,19 @@ struct t_aureonoise {
   aureo::Biquad pinna_notchL;
   aureo::Biquad pinna_notchR;
 
+  struct GoldenParams {
+    double rate = 0.0;
+    double baselen_ms = aureo::kMinBaseLengthMs;
+    double len_phi = 0.0;
+    double env_attack = 0.18;
+    double env_decay = 0.28;
+    double env_sustain = 0.55;
+    double env_release = 0.30;
+    double spat_min_deg = 12.0;
+    double spat_min_ms = 35.0;
+    double hemis_coupling = 0.6;
+  } golden;
+
   double pinna_mix = 0.0;
   double pinna_mix_target = 0.0;
   double pinna_depth = 12.0;
@@ -197,6 +211,77 @@ void aureonoise_setup_attributes(t_class* c);
 int  pick_prime_in_range(t_aureonoise* x, int lo, int hi, double u);
 void make_small_primes(t_aureonoise* x);
 void aureonoise_report(t_aureonoise* x);
+
+inline double aureonoise_phi_curve(double u)
+{
+  u = aureo::clamp01(u);
+  const double denom = aureo::kPhi - 1.0;
+  if (denom <= 1.0e-12) return u;
+  return (std::pow(aureo::kPhi, u) - 1.0) / denom;
+}
+
+inline double aureonoise_phi_project_positive(double value, double minVal, double maxVal)
+{
+  minVal = std::max(minVal, 1.0e-6);
+  maxVal = std::max(maxVal, minVal);
+  const double v = aureo::clamp(value, minVal, maxVal);
+  const double range = maxVal - minVal;
+  if (range <= 1.0e-9) return minVal;
+  const double u = (v - minVal) / range;
+  const double phi_u = aureonoise_phi_curve(u);
+  return aureo::map_phi_range(minVal, maxVal, phi_u);
+}
+
+inline double aureonoise_phi_project_unit(double value)
+{
+  if (value <= 0.0) return 0.0;
+  if (value >= 1.0) return 1.0;
+  return aureonoise_phi_curve(value);
+}
+
+inline void aureonoise_refresh_golden_params(t_aureonoise* x)
+{
+  if (!x) return;
+
+  const double rate_clamped = aureo::clamp(x->p_rate, 0.0, aureo::kMaxEventRateHz);
+  if (rate_clamped <= 1.0e-6) {
+    x->golden.rate = 0.0;
+  } else {
+    const double rate_floor = 0.125;
+    const double range = std::max(aureo::kMaxEventRateHz - rate_floor, 1.0);
+    const double u = aureonoise_phi_curve(aureo::clamp01((rate_clamped - rate_floor) / range));
+    x->golden.rate = aureo::map_phi_range(rate_floor, aureo::kMaxEventRateHz, u);
+  }
+
+  x->golden.baselen_ms = aureonoise_phi_project_positive(x->p_baselen_ms,
+                                                         aureo::kMinBaseLengthMs,
+                                                         2000.0);
+
+  if (x->p_len_phi <= 1.0e-6) {
+    x->golden.len_phi = 0.0;
+  } else {
+    x->golden.len_phi = aureonoise_phi_project_positive(x->p_len_phi, 0.05, 2.0);
+  }
+
+  x->golden.env_attack  = aureonoise_phi_project_positive(x->p_env_attack, 0.01, 4.0);
+  x->golden.env_decay   = aureonoise_phi_project_positive(x->p_env_decay, 0.01, 4.0);
+  x->golden.env_sustain = aureonoise_phi_project_unit(x->p_env_sustain);
+  x->golden.env_release = aureonoise_phi_project_positive(x->p_env_release, 0.01, 4.0);
+
+  if (x->p_spat_min_deg <= 1.0e-6) {
+    x->golden.spat_min_deg = 0.0;
+  } else {
+    x->golden.spat_min_deg = aureonoise_phi_project_positive(x->p_spat_min_deg, 1.0, 180.0);
+  }
+
+  if (x->p_spat_min_ms <= 1.0e-6) {
+    x->golden.spat_min_ms = 0.0;
+  } else {
+    x->golden.spat_min_ms = aureonoise_phi_project_positive(x->p_spat_min_ms, 1.0, 500.0);
+  }
+
+  x->golden.hemis_coupling = aureonoise_phi_project_unit(x->p_hemis_coupling);
+}
 
 t_max_err set_rate(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_baselen(t_aureonoise* x, void*, long ac, t_atom* av);
