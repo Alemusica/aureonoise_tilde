@@ -118,6 +118,19 @@ endif()
 # DEVE essere incluso DOPO la creazione del target con lo stesso nome di C74_TARGET.
 include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-posttarget.cmake")
 
+# --- Firma automatica su macOS ---
+if(APPLE)
+  find_program(CODESIGN_EXECUTABLE codesign)
+  if(CODESIGN_EXECUTABLE)
+    # firma il bundle .mxo (cartella al livello superiore di Contents/MacOS)
+    add_custom_command(
+      TARGET aureonoise_tilde POST_BUILD
+      COMMAND "${CODESIGN_EXECUTABLE}" --force --deep -s - "$<TARGET_FILE_DIR:aureonoise_tilde>/../.."
+      COMMENT "Ad-hoc signing aureonoise~.mxo"
+      VERBATIM)
+  endif()
+endif()
+
 # Install destino (cambia a piacere)
 install(TARGETS ${C74_TARGET}
   BUNDLE  DESTINATION "${MAX_PACKAGE_DIR}"
