@@ -241,9 +241,12 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
   if (!x) return nullptr;
 
   dsp_setup(reinterpret_cast<t_pxobject*>(x), 0);
-  outlet_new(reinterpret_cast<t_object*>(x), "signal");
-  outlet_new(reinterpret_cast<t_object*>(x), "signal");
+  // In Max gli outlet vengono creati da destra verso sinistra: creiamo prima
+  // l'outlet informativo così rimane a destra, quindi il canale destro e infine
+  // il sinistro che deve risultare il primo (più a sinistra) sul box.
   x->out_info = outlet_new(reinterpret_cast<t_object*>(x), NULL);
+  outlet_new(reinterpret_cast<t_object*>(x), "signal"); // canale destro
+  outlet_new(reinterpret_cast<t_object*>(x), "signal"); // canale sinistro
 
   x->sr = sys_getsr();
   if (x->sr <= 0) x->sr = 44100.0;
