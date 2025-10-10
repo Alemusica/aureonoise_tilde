@@ -121,10 +121,16 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
   make_small_primes(x);
   x->ring.clear();
   x->samples_to_next = static_cast<int>(x->sr * 0.1);
+  x->gap_elapsed = 0;
   x->sample_counter = 0;
   x->lfo_wow_phase = 0.0;
   x->lfo_flut_phase = 0.0;
   for (auto& g : x->grains) g = {};
+  x->prev_pan = 0.0;
+  x->prev_itd = 0.0;
+  x->prev_ild = 0.0;
+  x->last_gap_samples = 0.0;
+  x->last_dur_samples = 0.0;
 
   x->pinna.width = x->p_width;
   x->pinna.itd_us = x->p_itd_us;
@@ -176,11 +182,17 @@ void aureonoise_clear(t_aureonoise* x)
   x->ring.clear();
   for (auto& g : x->grains) g = {};
   x->samples_to_next = static_cast<int>(x->sr * 0.1);
+  x->gap_elapsed = 0;
   x->sample_counter = 0;
   x->noise.reset();
   x->pinna_mix = x->pinna_mix_target;
   x->pinna_notchL.clear();
   x->pinna_notchR.clear();
+  x->prev_pan = 0.0;
+  x->prev_itd = 0.0;
+  x->prev_ild = 0.0;
+  x->last_gap_samples = 0.0;
+  x->last_dur_samples = 0.0;
 }
 
 void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long, long)
@@ -201,6 +213,12 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
 #if AUREO_THERMO_LATTICE
   x->lat_phase = 0.0;
 #endif
+  x->gap_elapsed = 0;
+  x->prev_pan = 0.0;
+  x->prev_itd = 0.0;
+  x->prev_ild = 0.0;
+  x->last_gap_samples = 0.0;
+  x->last_dur_samples = 0.0;
   object_method(dsp64, gensym("dsp_add64"), x, reinterpret_cast<method>(aureonoise_perform64), 0, NULL);
 }
 
@@ -249,6 +267,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 #endif
 
   for (long n = 0; n < sampleframes; ++n) {
+    ++x->gap_elapsed;
     x->lfo_wow_phase += incWow; if (x->lfo_wow_phase >= 1.0) x->lfo_wow_phase -= 1.0;
     x->lfo_flut_phase += incFlt; if (x->lfo_flut_phase >= 1.0) x->lfo_flut_phase -= 1.0;
     const double wow = std::sin(2.0 * aureo::kPi * x->lfo_wow_phase);
@@ -299,6 +318,14 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
         const double u2 = x->w_s2.next();
         const double u3 = x->w_pl.next();
         const double u4 = x->rng.uni01();
+        const double u5 = x->rng.uni01();
+
+        const double gap_samples = static_cast<double>(x->gap_elapsed);
+        const double prev_dur = std::max(1.0, x->last_dur_samples);
+        const double ratio_gap = gap_samples / prev_dur;
+        const double coupling = aureo::clamp01(x->p_hemis_coupling);
+        const double time_weight = aureo::clamp(0.35 + 0.65 * (ratio_gap / (ratio_gap + 1.0)), 0.35, 1.0);
+        const double hemi = coupling * time_weight;
 
 #if AUREO_THERMO_LATTICE
         double lat_u = 0.5;
@@ -320,17 +347,24 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 #if AUREO_THERMO_LATTICE
         pan += 0.25 * (2.0 * lat_u - 1.0) + 0.35 * oup;
 #endif
-        pan = aureo::clamp(pan, -1.0, 1.0);
+        pan = aureo::clamp((1.0 - hemi) * pan - hemi * x->prev_pan, -1.0, 1.0);
         auto gains = x->pinna.gains(pan);
         g.panL = gains.first;
         g.panR = gains.second;
 
-        g.itd = aureo::map_itd_samples_frac(x->sr, x->p_itd_us, u2);
+        double itd = aureo::map_itd_samples_frac(x->sr, x->p_itd_us, u2);
 #if AUREO_THERMO_LATTICE
-        g.itd += ((2.0 * lat_u - 1.0) * 0.33 + 0.33 * oui) * (x->p_itd_us * 1.0e-6 * x->sr);
+        itd += ((2.0 * lat_u - 1.0) * 0.33 + 0.33 * oui) * (x->p_itd_us * 1.0e-6 * x->sr);
 #endif
-        g.gL = aureo::map_ild_gain(x->p_ild_db, u3, true);
-        g.gR = aureo::map_ild_gain(x->p_ild_db, u3, false);
+        g.itd = (1.0 - hemi) * itd - hemi * x->prev_itd;
+
+        const double ild_max = aureo::clamp(x->p_ild_db, 0.0, 24.0);
+        const double ild_sign = 2.0 * u5 - 1.0;
+        const double ild_mag = aureo::map_phi_range(0.0, ild_max, std::abs(ild_sign));
+        double ild_db = ild_sign * ild_mag;
+        ild_db = aureo::clamp((1.0 - hemi) * ild_db - hemi * x->prev_ild, -ild_max, ild_max);
+        g.gL = aureo::db_to_lin(ild_db);
+        g.gR = aureo::db_to_lin(-ild_db);
 
         g.kind = aureo::choose_kind(x->p_glitch_mix, u4);
 
@@ -342,6 +376,21 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 #endif
         g.sr_holdCnt = g.sr_holdN;
         g.q_levels = (1 << (aureo::map_bits(x->p_bitcrush_amt) - 1)) - 1;
+
+        const auto envShape = x->field.make_envelope(x->p_env_attack,
+                                                     x->p_env_decay,
+                                                     x->p_env_sustain,
+                                                     x->p_env_release,
+                                                     gap_samples,
+                                                     static_cast<double>(g.dur),
+                                                     std::abs(pan));
+        g.env = envShape;
+        x->prev_pan = pan;
+        x->prev_itd = g.itd;
+        x->prev_ild = ild_db;
+        x->last_gap_samples = gap_samples;
+        x->last_dur_samples = static_cast<double>(g.dur);
+        x->gap_elapsed = 0;
       }
       x->samples_to_next = schedule_gap_samples(x);
     }
@@ -352,7 +401,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
       if (g.age >= g.dur) { g.on = false; continue; }
 
       const double phase = static_cast<double>(g.age) / static_cast<double>(g.dur);
-      const double env = x->field.envelope(phase);
+      const double env = x->field.envelope(phase, g.env);
 
       double itd = g.itd + (vhs_mod * 0.25 * x->p_itd_us * 1.0e-6 * x->sr);
       double sL, sR;

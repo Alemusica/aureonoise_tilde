@@ -4,6 +4,7 @@
 
 #include "aureo_math.hpp"
 #include "aureo_rng.hpp"
+#include "aureo_field_adsr.hpp"
 
 namespace aureo {
 
@@ -16,8 +17,9 @@ struct NoiseColorState {
   double amount = 0.0;
   double z1 = 0.0;
   double z2 = 0.0;
+  double z3 = 0.0;
 
-  void reset() { z1 = 0.0; z2 = 0.0; }
+  void reset() { z1 = 0.0; z2 = 0.0; z3 = 0.0; }
 
   double process(RNG& rng)
   {
@@ -29,8 +31,14 @@ struct NoiseColorState {
       z1 = (1.0 - 0.02 * amt) * z1 + (0.02 * amt) * w;
       return (1.0 - amt) * w + amt * z1;
     } else {
-      z2 = (1.0 - 0.001 * amt) * z2 + (0.03 * amt) * w;
-      return clamp((1.0 - amt) * w + amt * z2, -1.5, 1.5);
+      const double slowPole = map_phi_range(0.88, 0.995, amt);
+      const double slowerPole = map_phi_range(0.70, 0.985, amt);
+      z1 = slowPole * z1 + (1.0 - slowPole) * w;
+      z2 = slowerPole * z2 + (1.0 - slowerPole) * z1;
+      z3 = (0.5 + 0.5 * (1.0 - amt)) * z3 + (0.5 * amt) * z2;
+      const double brown = z2 + 0.35 * z3;
+      const double shaped = soft_tanh(brown * (1.0 + 1.4 * amt));
+      return (1.0 - amt) * w + amt * shaped;
     }
   }
 };
@@ -51,6 +59,7 @@ struct Grain {
   double heldR = 0.0;
   int q_levels = 0;
   GrainKind kind = GrainKind::Burst;
+  FieldState::EnvelopeShape env;
 };
 
 inline GrainKind choose_kind(double mix, double u)

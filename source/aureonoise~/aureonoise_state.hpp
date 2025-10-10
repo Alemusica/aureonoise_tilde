@@ -29,6 +29,11 @@ struct t_aureonoise {
   double p_width = 1.0;
   double p_itd_us = 600.0;
   double p_ild_db = 6.0;
+  double p_env_attack = 0.18;
+  double p_env_decay = 0.28;
+  double p_env_sustain = 0.55;
+  double p_env_release = 0.30;
+  double p_hemis_coupling = 0.6;
   long   p_noise_color = static_cast<long>(aureo::NoiseColor::Pink);
   double p_color_amt = 0.65;
   double p_vhs_wow = 0.35;
@@ -84,9 +89,16 @@ struct t_aureonoise {
 
   uint64_t sample_counter = 0;
   int samples_to_next = 0;
+  int gap_elapsed = 0;
   std::array<int, 256> primes{};
   int primes_count = 0;
   std::array<aureo::Grain, aureo::kMaxGrains> grains{};
+
+  double prev_pan = 0.0;
+  double prev_itd = 0.0;
+  double prev_ild = 0.0;
+  double last_gap_samples = 0.0;
+  double last_dur_samples = 0.0;
 
 #if AUREO_THERMO_LATTICE
   aureo::OU ou_pan;
@@ -144,6 +156,11 @@ t_max_err set_lenphi(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_width(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_itd(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_ild(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_env_attack(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_env_decay(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_env_sustain(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_env_release(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_hemis_coupling(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_noise_color(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_color_amt(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_vhs_wow(t_aureonoise* x, void*, long ac, t_atom* av);
