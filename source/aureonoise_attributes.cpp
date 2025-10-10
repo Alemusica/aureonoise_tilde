@@ -71,6 +71,36 @@ void aureonoise_setup_attributes(t_class* c)
   CLASS_ATTR_LABEL(c,  "ild_db",    0, "ILD ±dB max");
   CLASS_ATTR_SAVE(c,   "ild_db",    0);
 
+  CLASS_ATTR_DOUBLE(c,  "env_attack", 0, t_aureonoise, p_env_attack);
+  CLASS_ATTR_ACCESSORS(c, "env_attack", NULL, set_env_attack);
+  CLASS_ATTR_FILTER_CLIP(c, "env_attack", 0.01, 4.0);
+  CLASS_ATTR_LABEL(c,  "env_attack", 0, "Rapporto attacco/IOI");
+  CLASS_ATTR_SAVE(c,   "env_attack", 0);
+
+  CLASS_ATTR_DOUBLE(c,  "env_decay", 0, t_aureonoise, p_env_decay);
+  CLASS_ATTR_ACCESSORS(c, "env_decay", NULL, set_env_decay);
+  CLASS_ATTR_FILTER_CLIP(c, "env_decay", 0.01, 4.0);
+  CLASS_ATTR_LABEL(c,  "env_decay", 0, "Rapporto decadimento/IOI");
+  CLASS_ATTR_SAVE(c,   "env_decay", 0);
+
+  CLASS_ATTR_DOUBLE(c,  "env_sustain", 0, t_aureonoise, p_env_sustain);
+  CLASS_ATTR_ACCESSORS(c, "env_sustain", NULL, set_env_sustain);
+  CLASS_ATTR_FILTER_CLIP(c, "env_sustain", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c,  "env_sustain", 0, "Livello sustain (0..1)");
+  CLASS_ATTR_SAVE(c,   "env_sustain", 0);
+
+  CLASS_ATTR_DOUBLE(c,  "env_release", 0, t_aureonoise, p_env_release);
+  CLASS_ATTR_ACCESSORS(c, "env_release", NULL, set_env_release);
+  CLASS_ATTR_FILTER_CLIP(c, "env_release", 0.01, 4.0);
+  CLASS_ATTR_LABEL(c,  "env_release", 0, "Rapporto release/IOI");
+  CLASS_ATTR_SAVE(c,   "env_release", 0);
+
+  CLASS_ATTR_DOUBLE(c,  "hemis_coupling", 0, t_aureonoise, p_hemis_coupling);
+  CLASS_ATTR_ACCESSORS(c, "hemis_coupling", NULL, set_hemis_coupling);
+  CLASS_ATTR_FILTER_CLIP(c, "hemis_coupling", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c,  "hemis_coupling", 0, "Accoppiamento emisferico (0..1)");
+  CLASS_ATTR_SAVE(c,   "hemis_coupling", 0);
+
   CLASS_ATTR_LONG(c,   "pinna_on",  0, t_aureonoise, p_pinna_on);
   CLASS_ATTR_ACCESSORS(c, "pinna_on", NULL, set_pinna_on);
   CLASS_ATTR_STYLE_LABEL(c, "pinna_on", 0, "onoff", "Pinna notch on/off");
@@ -84,7 +114,7 @@ void aureonoise_setup_attributes(t_class* c)
 
   CLASS_ATTR_LONG  (c,  "color",     0, t_aureonoise, p_noise_color);
   CLASS_ATTR_ACCESSORS(c, "color", NULL, set_noise_color);
-  CLASS_ATTR_STYLE_LABEL(c, "color", 0, "enumindex", "Colore rumore (white/pink/brown)");
+  CLASS_ATTR_STYLE_LABEL(c, "color", 0, "enumindex", "Colore rumore (white/pink/brown risonante)");
 #ifdef CLASS_ATTR_ENUMINDEX
   CLASS_ATTR_ENUMINDEX(c, "color", 0, "white pink brown");
 #else
@@ -238,6 +268,36 @@ t_max_err set_ild(t_aureonoise* x, void*, long ac, t_atom* av)
     x->p_ild_db = aureo::clamp(atom_getfloat(av), 0.0, 24.0);
     x->pinna.ild_db = x->p_ild_db;
   }
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_attack(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_attack = aureo::clamp(atom_getfloat(av), 0.01, 4.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_decay(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_decay = aureo::clamp(atom_getfloat(av), 0.01, 4.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_sustain(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_sustain = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_release(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_release = aureo::clamp(atom_getfloat(av), 0.01, 4.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_hemis_coupling(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_hemis_coupling = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
   return MAX_ERR_NONE;
 }
 
