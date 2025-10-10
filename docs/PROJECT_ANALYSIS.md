@@ -25,7 +25,7 @@ Durante il perform 64-bit il codice:
 
 ## Parametri utente
 
-Gli attributi espongono un set ricco di controlli: densità di eventi (`rate`, ora estesa fino a 120 Hz), durata base e varianza φ (`baselen_ms`, `len_phi`, con durata base riducibile a 1 ms), spazializzazione (`width`, `itd_us`, `ild_db`, `pinna_on`, `pinna_depth`), carattere timbrico (`color`, `color_amt`, `vhs_wow`, `vhs_flutter`, `glitch_mix`, `srcrush_amt`, `bitcrush_amt`), seed, e – se compilato con `AUREO_THERMO_LATTICE` – parametri termodinamici/lattice per modulazioni complesse inclusi `thermo`, `lattice`, `burst`, `T`, `lat_rate`, `lat_eps`, `lat_gamma`, `lat_sigma`, `lat_x/y/z`.【F:source/aureonoise_attributes.cpp†L37-L196】
+Gli attributi espongono un set ricco di controlli: densità di eventi (`rate`, ora estesa fino a 240 Hz), durata base e varianza φ (`baselen_ms`, `len_phi`, con durata base riducibile a 1 ms), spazializzazione (`width`, `itd_us`, `ild_db`, `pinna_on`, `pinna_depth`), carattere timbrico (`color`, `color_amt`, `vhs_wow`, `vhs_flutter`, `glitch_mix`, `srcrush_amt`, `bitcrush_amt`), seed, e – se compilato con `AUREO_THERMO_LATTICE` – parametri termodinamici/lattice per modulazioni complesse inclusi `thermo`, `lattice`, `burst`, `T`, `lat_rate`, `lat_eps`, `lat_gamma`, `lat_sigma`, `lat_x/y/z`.【F:source/aureonoise_attributes.cpp†L37-L196】
 
 ## Dipendenze esterne
 

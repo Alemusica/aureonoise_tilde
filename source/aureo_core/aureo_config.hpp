@@ -40,7 +40,7 @@ inline constexpr int    kMaxGrains  = 32;
 inline constexpr double kTiny       = 1.0e-30;
 inline constexpr double kAmpNorm    = 0.55;
 inline constexpr double kOutDrive   = 1.2;
-inline constexpr double kMaxEventRateHz = 120.0;
+inline constexpr double kMaxEventRateHz = 240.0;
 inline constexpr double kMinBaseLengthMs = 1.0;
 inline constexpr double kMinGrainSamples = 8.0;
 } // namespace aureo

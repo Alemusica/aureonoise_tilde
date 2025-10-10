@@ -55,9 +55,21 @@ struct Pinna {
     return {gL, gR};
   }
 
-  double itd_samples(double sr, double u) const { return map_itd_samples_frac(sr, itd_us, u); }
+  double itd_samples(double sr, double pan, double u) const
+  {
+    return map_itd_samples_frac(sr, itd_us, pan, u);
+  }
 
-  double ild_gain(bool left, double u) const { return map_ild_gain(ild_db, u, left); }
+  double ild_gain(bool left, double pan, double u) const
+  {
+    const double ild = map_ild_db(ild_db, pan, u);
+    return left ? db_to_lin(ild) : db_to_lin(-ild);
+  }
+
+  BinauralCoefficients coefficients(double sr, double pan, double itd_u, double ild_u) const
+  {
+    return compute_binaural(sr, pan, width, itd_us, ild_db, itd_u, ild_u);
+  }
 };
 
 } // namespace aureo
