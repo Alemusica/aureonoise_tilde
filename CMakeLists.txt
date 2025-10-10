@@ -39,13 +39,17 @@ include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-pretarget.cmake")
 
 # Sorgenti principali suddivisi per responsabilità
 set(SRC
-  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_tilde.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise~/aureonoise_tilde.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_attributes.cpp"
 )
 
 # Target modulo bundle .mxo: il nome DEVE essere ${C74_TARGET}
 add_library(${C74_TARGET} MODULE ${SRC})
-target_include_directories(${C74_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/source")
+target_include_directories(${C74_TARGET} PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/source"
+  "${CMAKE_CURRENT_LIST_DIR}/source/aureo_core"
+  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise~"
+)
 set_target_properties(${C74_TARGET} PROPERTIES
   BUNDLE TRUE
   BUNDLE_EXTENSION "mxo"

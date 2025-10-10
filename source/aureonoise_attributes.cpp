@@ -1,4 +1,9 @@
-#include "aureonoise_common.h"
+#include "aureonoise_state.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <vector>
 
 void make_small_primes(t_aureonoise* x)
 {
@@ -11,7 +16,7 @@ void make_small_primes(t_aureonoise* x)
     }
   }
   for (int n = 2; n <= limit; ++n) if (!comp[n]) pl.push_back(n);
-  const int maxCount = static_cast<int>(sizeof(x->primes) / sizeof(int));
+  const int maxCount = static_cast<int>(x->primes.size());
   x->primes_count = std::min(static_cast<int>(pl.size()), maxCount);
   for (int i = 0; i < x->primes_count; ++i) x->primes[i] = pl[i];
 }
@@ -23,11 +28,11 @@ int pick_prime_in_range(t_aureonoise* x, int lo, int hi, double u)
   std::vector<int> cand;
   cand.reserve(64);
   for (int i = 0; i < x->primes_count; ++i) {
-    int p = x->primes[i];
+    const int p = x->primes[i];
     if (p >= lo && p <= hi) cand.push_back(p);
   }
   if (cand.empty()) return std::max(1, lo);
-  size_t idx = (size_t)std::floor(clamp01(u) * cand.size());
+  size_t idx = static_cast<size_t>(std::floor(aureo::clamp01(u) * cand.size()));
   if (idx >= cand.size()) idx = cand.size() - 1;
   return cand[idx];
 }
@@ -179,73 +184,148 @@ void aureonoise_setup_attributes(t_class* c)
 }
 
 t_max_err set_rate(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_rate = clamp(atom_getfloat(av), 0.0, 50.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_rate = aureo::clamp(atom_getfloat(av), 0.0, 50.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_baselen(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_baselen_ms = clamp(atom_getfloat(av), 5.0, 2000.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_baselen_ms = aureo::clamp(atom_getfloat(av), 5.0, 2000.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_lenphi(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_len_phi = clamp(atom_getfloat(av), 0.0, 2.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_len_phi = aureo::clamp(atom_getfloat(av), 0.0, 2.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_width(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_width = clamp(atom_getfloat(av), 0.0, 1.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_width = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+    x->pinna.width = x->p_width;
+  }
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_itd(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_itd_us = clamp(atom_getfloat(av), 0.0, 1000.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_itd_us = aureo::clamp(atom_getfloat(av), 0.0, 1000.0);
+    x->pinna.itd_us = x->p_itd_us;
+  }
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_ild(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_ild_db = clamp(atom_getfloat(av), 0.0, 24.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_ild_db = aureo::clamp(atom_getfloat(av), 0.0, 24.0);
+    x->pinna.ild_db = x->p_ild_db;
+  }
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_noise_color(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     if (atom_gettype(av) == A_SYM) {
       const char* s = atom_getsym(av)->s_name;
-      if (!std::strcmp(s, "white"))      x->p_noise_color = (long)noise_color::white;
-      else if (!std::strcmp(s, "pink")) x->p_noise_color = (long)noise_color::pink;
-      else                                x->p_noise_color = (long)noise_color::brown;
+      if (!std::strcmp(s, "white"))      x->p_noise_color = static_cast<long>(aureo::NoiseColor::White);
+      else if (!std::strcmp(s, "pink")) x->p_noise_color = static_cast<long>(aureo::NoiseColor::Pink);
+      else                                x->p_noise_color = static_cast<long>(aureo::NoiseColor::Brown);
     } else {
       long m = atom_getlong(av);
       if (m < 0) m = 0;
       if (m > 2) m = 2;
       x->p_noise_color = m;
     }
+    x->noise.color = static_cast<aureo::NoiseColor>(x->p_noise_color);
   }
   return MAX_ERR_NONE;
 }
 
 t_max_err set_color_amt(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_color_amt = clamp(atom_getfloat(av), 0.0, 1.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_color_amt = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+    x->noise.amount = x->p_color_amt;
+  }
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_vhs_wow(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_vhs_wow = clamp(atom_getfloat(av), 0.0, 1.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_vhs_wow = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_vhs_flutter(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_vhs_flutter = clamp(atom_getfloat(av), 0.0, 1.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_vhs_flutter = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_glitch_mix(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_glitch_mix = clamp(atom_getfloat(av), 0.0, 1.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_glitch_mix = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_srcrush(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_srcrush_amt = clamp(atom_getfloat(av), 0.0, 1.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_srcrush_amt = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_bitcrush(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_bitcrush_amt = clamp(atom_getfloat(av), 0.0, 1.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_bitcrush_amt = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_seed(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_seed = (long)atom_getlong(av); x->rng.seed((uint64_t)x->p_seed); } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_seed = static_cast<long>(atom_getlong(av));
+    x->rng.seed(static_cast<uint64_t>(x->p_seed));
+    x->w_phi.x = x->rng.uni01();
+    x->w_phi.set_step(aureo::kInvPhi);
+#if AUREO_WD_PHI_POWERS
+    x->w_s2.x = x->rng.uni01();
+    x->w_s2.set_step(1.0 / (aureo::kPhi * aureo::kPhi));
+    x->w_pl.x = x->rng.uni01();
+    x->w_pl.set_step(1.0 / (aureo::kPhi * aureo::kPhi * aureo::kPhi));
+#else
+    x->w_s2.x = x->rng.uni01();
+    x->w_s2.set_step(aureo::kInvSqrt2);
+    x->w_pl.x = x->rng.uni01();
+    x->w_pl.set_step(aureo::kInvPlastic);
+#endif
+    x->noise.reset();
+  }
+  return MAX_ERR_NONE;
+}
 
 #if AUREO_THERMO_LATTICE
 t_max_err set_thermo(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_thermo = atom_getlong(av) ? 1 : 0; } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_thermo = atom_getlong(av) ? 1 : 0;
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_lattice(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_lattice = atom_getlong(av) ? 1 : 0; } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_lattice = atom_getlong(av) ? 1 : 0;
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_burst(t_aureonoise* x, void*, long ac, t_atom* av)
 {
 #if AUREO_BURST_HAWKES
-  if (ac && av) { x->p_burst = atom_getlong(av) ? 1 : 0; }
+  if (ac && av) x->p_burst = atom_getlong(av) ? 1 : 0;
 #else
   (void)x; (void)ac; (void)av;
 #endif
@@ -253,25 +333,52 @@ t_max_err set_burst(t_aureonoise* x, void*, long ac, t_atom* av)
 }
 
 t_max_err set_T(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_T = clamp(atom_getfloat(av), 0.0, 1.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_T = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+    x->field.temperature = x->p_T;
+  }
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_lat_rate(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_lat_rate = clamp(atom_getfloat(av), 1.0, 2000.0); } return MAX_ERR_NONE; }
+{
+  if (ac && av) x->p_lat_rate = aureo::clamp(atom_getfloat(av), 1.0, 2000.0);
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_lat_eps(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_lat_eps = atom_getfloat(av); x->lat.eps = x->p_lat_eps; } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_lat_eps = atom_getfloat(av);
+    x->lat.eps = x->p_lat_eps;
+  }
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_lat_gamma(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_lat_gamma = atom_getfloat(av); x->lat.gamma = x->p_lat_gamma; } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_lat_gamma = atom_getfloat(av);
+    x->lat.gamma = x->p_lat_gamma;
+  }
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_lat_sigma(t_aureonoise* x, void*, long ac, t_atom* av)
-{ if (ac && av) { x->p_lat_sigma = atom_getfloat(av); x->lat.sigma = x->p_lat_sigma; } return MAX_ERR_NONE; }
+{
+  if (ac && av) {
+    x->p_lat_sigma = atom_getfloat(av);
+    x->lat.sigma = x->p_lat_sigma;
+  }
+  return MAX_ERR_NONE;
+}
 
 t_max_err set_lat_x(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_x = std::max<long>(2, atom_getlong(av));
-    x->lat.init((int)x->p_lat_x, (int)x->p_lat_y, (int)x->p_lat_z);
+    x->lat.init(static_cast<int>(x->p_lat_x), static_cast<int>(x->p_lat_y), static_cast<int>(x->p_lat_z));
   }
   return MAX_ERR_NONE;
 }
@@ -280,7 +387,7 @@ t_max_err set_lat_y(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_y = std::max<long>(2, atom_getlong(av));
-    x->lat.init((int)x->p_lat_x, (int)x->p_lat_y, (int)x->p_lat_z);
+    x->lat.init(static_cast<int>(x->p_lat_x), static_cast<int>(x->p_lat_y), static_cast<int>(x->p_lat_z));
   }
   return MAX_ERR_NONE;
 }
@@ -289,8 +396,9 @@ t_max_err set_lat_z(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_z = std::max<long>(1, atom_getlong(av));
-    x->lat.init((int)x->p_lat_x, (int)x->p_lat_y, (int)x->p_lat_z);
+    x->lat.init(static_cast<int>(x->p_lat_x), static_cast<int>(x->p_lat_y), static_cast<int>(x->p_lat_z));
   }
   return MAX_ERR_NONE;
 }
 #endif
+
