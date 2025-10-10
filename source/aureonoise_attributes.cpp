@@ -413,6 +413,8 @@ t_max_err set_pinna_depth(t_aureonoise* x, void*, long ac, t_atom* av)
 t_max_err set_thermo(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_thermo = atom_getlong(av) ? 1 : 0;
+  // kick di sicurezza per evitare attese troppo lunghe dopo un toggle
+  x->samples_to_next = static_cast<int>(std::max(1.0, x->sr * 0.02));
   return MAX_ERR_NONE;
 }
 
