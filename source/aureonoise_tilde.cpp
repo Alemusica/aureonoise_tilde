@@ -9,6 +9,9 @@
 #define AUREO_WD_PHI_POWERS  0   // 0: (1/φ, 1/√2, 1/ρ) [default]; 1: (1/φ, 1/φ², 1/φ³)
 #define AUREO_ITD_PHI_SHAPE  0   // 0: ITD lineare [-max..+max]; 1: magnitudine ITD φ-shaped heavy-tail
 #define AUREO_SR_PRIME_SNAP  1   // 1: SR-hold snappato ai numeri primi (anti-ritmicità)
+// Motore Thermo-Lattice (stocastica fisica + lattice neurale leggero)
+#define AUREO_THERMO_LATTICE 1   // 1: abilita OU + lattice (runtime togglable via @thermo/@lattice)
+#define AUREO_BURST_HAWKES   1   // 1: clustering di burst stile Hawkes (runtime @burst)
 
 extern "C" {
   #include "ext.h"
@@ -72,6 +75,55 @@ enum class noise_color : int { white=0, pink, brown };
 // Modalità di glitch/evento
 enum class grain_kind : int { burst=0, vhs_drop, stutter, aliaser };
 
+#if AUREO_THERMO_LATTICE
+// ===================== OU (Ornstein-Uhlenbeck) =====================
+struct OU {
+  double y=0.0, tau=0.5, sigma=0.3; // tau [s], sigma scala col "T"
+  inline double step(double dt, double mu, RNG& rng) {
+    double a = std::exp(-dt/tau);
+    double s = sigma * std::sqrt(std::max(0.0, 1.0 - a*a));
+    y = a*y + (1.0 - a)*mu + s * rng.uniPM1();
+    return y;
+  }
+};
+
+// ===================== Lattice (Coupled-Map) =====================
+struct Lattice {
+  int X=8,Y=8,Z=4; double eps=0.18, gamma=1.4, sigma=0.06;
+  std::vector<double> x,tmp;
+  void init(int x_,int y_,int z_){ X=x_;Y=y_;Z=z_; x.assign(X*Y*Z,0.0); tmp=x; }
+  inline int idx(int i,int j,int k) const { i=(i+X)%X; j=(j+Y)%Y; k=(k+Z)%Z; return (k*Y + j)*X + i; }
+  inline double act(double v) const { return std::tanh(gamma*v); }
+  void step(RNG& rng){
+    for(int k=0;k<Z;++k) for(int j=0;j<Y;++j) for(int i=0;i<X;++i){
+      int p=idx(i,j,k);
+      double s = act(x[idx(i+1,j,k)])+act(x[idx(i-1,j,k)])+act(x[idx(i,j+1,k)])+act(x[idx(i,j-1,k)])+act(x[idx(i,j,k+1)])+act(x[idx(i,j,k-1)]);
+      tmp[p] = (1.0-eps)*act(x[p]) + (eps/6.0)*s + sigma*rng.uniPM1();
+    }
+    x.swap(tmp);
+  }
+  double probe(double u) const {
+    if (x.empty()) return 0.0;
+    size_t n=x.size(); size_t p=(size_t)std::floor(clamp01(u)*n) % n;
+    return x[p];
+  }
+};
+
+#if AUREO_BURST_HAWKES
+// ===================== Hawkes (burst clustering) =====================
+struct Hawkes {
+  double lambda=0.0, base=4.0, beta=30.0;
+  inline bool tick(double dt, RNG& rng){
+    lambda = base + (lambda - base) * std::exp(-beta*dt);
+    double p = 1.0 - std::exp(-lambda*dt);
+    bool ev = (rng.uni01() < p);
+    if (ev) lambda += base * 0.7; // autoeccitazione breve
+    return ev;
+  }
+};
+#endif
+#endif // AUREO_THERMO_LATTICE
+
 // ===================== STRUTTURA OGGETTO =====================
 typedef struct _aureonoise {
   t_pxobject  ob;
@@ -91,6 +143,18 @@ typedef struct _aureonoise {
   double      p_srcrush_amt;    // 0..1 (aliaser)
   double      p_bitcrush_amt;   // 0..1 (da 16→4 bit)
   long        p_seed;           // seed
+#if AUREO_THERMO_LATTICE
+  // ===== Thermo/Lattice (runtime) =====
+  long        p_thermo;         // 0/1 abilita OU
+  long        p_lattice;        // 0/1 abilita lattice
+  long        p_burst;          // 0/1 abilita Hawkes (se compilato)
+  double      p_T;              // temperatura 0..1 (scala le sigma OU)
+  double      p_lat_rate;       // Hz aggiornamento lattice/OU
+  double      p_lat_eps;        // accoppiamento ε
+  double      p_lat_gamma;      // non linearità γ
+  double      p_lat_sigma;      // rumore σ
+  long        p_lat_x, p_lat_y, p_lat_z; // dimensioni lattice
+#endif
 
   // Stato DSP
   double      sr;
@@ -125,6 +189,16 @@ typedef struct _aureonoise {
     int q_levels; grain_kind kind;
   } grains[kMaxGrains];
 
+#if AUREO_THERMO_LATTICE
+  // Stato Thermo-Lattice
+  OU          ou_pan, ou_itd, ou_amp, ou_rate;
+  Lattice     lat;
+  double      lat_phase; // accumulatore (Hz -> passi)
+#if AUREO_BURST_HAWKES
+  Hawkes      hawkes;
+#endif
+#endif
+
 } t_aureonoise;
 
 // ===================== PROTOTIPI =====================
@@ -154,6 +228,20 @@ t_max_err set_glitch_mix(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_srcrush(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_bitcrush(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_seed(t_aureonoise* x, void*, long ac, t_atom* av);
+#if AUREO_THERMO_LATTICE
+// Thermo/Lattice setters
+t_max_err set_thermo(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_lattice(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_burst(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_T(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_lat_rate(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_lat_eps(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_lat_gamma(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_lat_sigma(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_lat_x(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_lat_y(t_aureonoise* x, void*, long ac, t_atom* av);
+t_max_err set_lat_z(t_aureonoise* x, void*, long ac, t_atom* av);
+#endif
 
 // ===== util auree =====
 static inline double map_phi_range(double vmin, double vmax, double u)
@@ -256,11 +344,21 @@ static inline grain_kind choose_kind(t_aureonoise* x, double u)
 static inline int schedule_gap_samples(t_aureonoise* x)
 {
   double rate = clamp(x->p_rate, 0.0, 50.0);
+#if AUREO_THERMO_LATTICE
+  if (x->p_thermo) {
+    double ur = 0.5 + 0.5 * std::tanh(x->ou_rate.y);
+    double rate_phi = map_phi_range(std::max(0.001, x->p_rate / kPhi), x->p_rate * kPhi, ur);
+    rate = clamp(rate_phi, 0.0, 50.0);
+  }
+#endif
   if (rate <= 1e-6) return (int)(x->sr * 0.25);
 
   double t = (double)x->sample_counter / x->sr;
   double lambda = rate * (1.0 + 0.2 * std::sin(2.0 * M_PI * (t * (1.0/kPhi))));
   lambda = std::max(lambda, 1e-3);
+#if AUREO_THERMO_LATTICE && AUREO_BURST_HAWKES
+  if (x->p_burst) lambda += 0.3 * x->hawkes.lambda;
+#endif
 
   double U = std::max(1.0e-12, x->rng.uni01());
   double gap_sec = -std::log(U) / lambda;
@@ -405,6 +503,64 @@ extern "C" int C74_EXPORT main(void)
   CLASS_ATTR_LABEL(c,  "seed",      0, "Seed");
   CLASS_ATTR_SAVE(c,   "seed",      0);
 
+#if AUREO_THERMO_LATTICE
+  CLASS_ATTR_LONG(c,   "thermo",    0, t_aureonoise, p_thermo);
+  CLASS_ATTR_ACCESSORS(c, "thermo", NULL, set_thermo);
+  CLASS_ATTR_STYLE_LABEL(c, "thermo", 0, "onoff", "Thermo (OU) on/off");
+  CLASS_ATTR_SAVE(c,   "thermo",    0);
+
+  CLASS_ATTR_LONG(c,   "lattice",   0, t_aureonoise, p_lattice);
+  CLASS_ATTR_ACCESSORS(c, "lattice", NULL, set_lattice);
+  CLASS_ATTR_STYLE_LABEL(c, "lattice", 0, "onoff", "Coupled-Map Lattice on/off");
+  CLASS_ATTR_SAVE(c,   "lattice",   0);
+
+#if AUREO_BURST_HAWKES
+  CLASS_ATTR_LONG(c,   "burst",     0, t_aureonoise, p_burst);
+  CLASS_ATTR_ACCESSORS(c, "burst", NULL, set_burst);
+  CLASS_ATTR_STYLE_LABEL(c, "burst", 0, "onoff", "Burst clustering (Hawkes) on/off");
+  CLASS_ATTR_SAVE(c,   "burst",     0);
+#endif
+
+  CLASS_ATTR_DOUBLE(c, "T",         0, t_aureonoise, p_T);
+  CLASS_ATTR_ACCESSORS(c, "T", NULL, set_T);
+  CLASS_ATTR_FILTER_CLIP(c, "T", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c,  "T",         0, "Temperatura stocastica (0..1)");
+  CLASS_ATTR_SAVE(c,   "T",         0);
+
+  CLASS_ATTR_DOUBLE(c, "lat_rate",  0, t_aureonoise, p_lat_rate);
+  CLASS_ATTR_ACCESSORS(c, "lat_rate", NULL, set_lat_rate);
+  CLASS_ATTR_LABEL(c,  "lat_rate",  0, "Frequenza lattice (Hz)");
+  CLASS_ATTR_SAVE(c,   "lat_rate",  0);
+
+  CLASS_ATTR_DOUBLE(c, "lat_eps",   0, t_aureonoise, p_lat_eps);
+  CLASS_ATTR_ACCESSORS(c, "lat_eps", NULL, set_lat_eps);
+  CLASS_ATTR_LABEL(c,  "lat_eps",   0, "Accoppiamento lattice ε");
+  CLASS_ATTR_SAVE(c,   "lat_eps",   0);
+
+  CLASS_ATTR_DOUBLE(c, "lat_gamma", 0, t_aureonoise, p_lat_gamma);
+  CLASS_ATTR_ACCESSORS(c, "lat_gamma", NULL, set_lat_gamma);
+  CLASS_ATTR_LABEL(c,  "lat_gamma", 0, "Nonlinearità γ");
+  CLASS_ATTR_SAVE(c,   "lat_gamma", 0);
+
+  CLASS_ATTR_DOUBLE(c, "lat_sigma", 0, t_aureonoise, p_lat_sigma);
+  CLASS_ATTR_ACCESSORS(c, "lat_sigma", NULL, set_lat_sigma);
+  CLASS_ATTR_LABEL(c,  "lat_sigma", 0, "Rumore lattice σ");
+  CLASS_ATTR_SAVE(c,   "lat_sigma", 0);
+
+  CLASS_ATTR_LONG(c,   "lat_x",     0, t_aureonoise, p_lat_x);
+  CLASS_ATTR_ACCESSORS(c, "lat_x", NULL, set_lat_x);
+  CLASS_ATTR_LABEL(c,  "lat_x",     0, "Lattice X");
+  CLASS_ATTR_SAVE(c,   "lat_x",     0);
+  CLASS_ATTR_LONG(c,   "lat_y",     0, t_aureonoise, p_lat_y);
+  CLASS_ATTR_ACCESSORS(c, "lat_y", NULL, set_lat_y);
+  CLASS_ATTR_LABEL(c,  "lat_y",     0, "Lattice Y");
+  CLASS_ATTR_SAVE(c,   "lat_y",     0);
+  CLASS_ATTR_LONG(c,   "lat_z",     0, t_aureonoise, p_lat_z);
+  CLASS_ATTR_ACCESSORS(c, "lat_z", NULL, set_lat_z);
+  CLASS_ATTR_LABEL(c,  "lat_z",     0, "Lattice Z");
+  CLASS_ATTR_SAVE(c,   "lat_z",     0);
+#endif
+
   class_register(CLASS_BOX, c);
   s_aureonoise_class = c;
   return 0;
@@ -480,6 +636,32 @@ void* aureonoise_new(t_symbol* s, long argc, t_atom* argv)
   x->sample_counter = 0; x->samples_to_next = (int)(x->sr * 0.1);
   for (auto& g : x->grains) g.on = false;
 
+#if AUREO_THERMO_LATTICE
+  // Default Thermo-Lattice
+  x->p_thermo    = 1;
+  x->p_lattice   = 1;
+#if AUREO_BURST_HAWKES
+  x->p_burst     = 1;
+#else
+  x->p_burst     = 0;
+#endif
+  x->p_T         = 0.45;
+  x->p_lat_rate  = 250.0;
+  x->p_lat_eps   = 0.18;
+  x->p_lat_gamma = 1.40;
+  x->p_lat_sigma = 0.06;
+  x->p_lat_x = 8; x->p_lat_y = 8; x->p_lat_z = 4;
+
+  x->ou_pan.tau = 0.60; x->ou_itd.tau = 0.40; x->ou_amp.tau = 0.80; x->ou_rate.tau = 1.20;
+  x->ou_pan.y = x->ou_itd.y = x->ou_amp.y = x->ou_rate.y = 0.0;
+  x->lat.init((int)x->p_lat_x, (int)x->p_lat_y, (int)x->p_lat_z);
+  x->lat.eps = x->p_lat_eps; x->lat.gamma = x->p_lat_gamma; x->lat.sigma = x->p_lat_sigma;
+  x->lat_phase = 0.0;
+#if AUREO_BURST_HAWKES
+  x->hawkes.base = 4.0; x->hawkes.beta = 30.0; x->hawkes.lambda = 0.0;
+#endif
+#endif
+
   attr_args_process(x, (short)argc, argv);
   return x;
 }
@@ -504,6 +686,33 @@ t_max_err set_glitch_mix(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av
 t_max_err set_srcrush(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_srcrush_amt = clamp(atom_getfloat(av),0.0,1.0);} return MAX_ERR_NONE; }
 t_max_err set_bitcrush(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_bitcrush_amt = clamp(atom_getfloat(av),0.0,1.0);} return MAX_ERR_NONE; }
 t_max_err set_seed(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_seed = (long)atom_getlong(av); x->rng.seed((uint64_t)x->p_seed); } return MAX_ERR_NONE; }
+#if AUREO_THERMO_LATTICE
+t_max_err set_thermo(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_thermo = atom_getlong(av)?1:0; } return MAX_ERR_NONE; }
+t_max_err set_lattice(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_lattice = atom_getlong(av)?1:0; } return MAX_ERR_NONE; }
+t_max_err set_burst(t_aureonoise* x, void*, long ac, t_atom* av){
+#if AUREO_BURST_HAWKES
+  if(ac&&av){ x->p_burst = atom_getlong(av)?1:0; }
+#endif
+  return MAX_ERR_NONE;
+}
+t_max_err set_T(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_T = clamp(atom_getfloat(av),0.0,1.0);} return MAX_ERR_NONE; }
+t_max_err set_lat_rate(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_lat_rate = clamp(atom_getfloat(av),1.0,2000.0);} return MAX_ERR_NONE; }
+t_max_err set_lat_eps(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_lat_eps = atom_getfloat(av); x->lat.eps = x->p_lat_eps; } return MAX_ERR_NONE; }
+t_max_err set_lat_gamma(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_lat_gamma = atom_getfloat(av); x->lat.gamma = x->p_lat_gamma; } return MAX_ERR_NONE; }
+t_max_err set_lat_sigma(t_aureonoise* x, void*, long ac, t_atom* av){ if(ac&&av){ x->p_lat_sigma = atom_getfloat(av); x->lat.sigma = x->p_lat_sigma; } return MAX_ERR_NONE; }
+t_max_err set_lat_x(t_aureonoise* x, void*, long ac, t_atom* av){
+  if(ac&&av){ x->p_lat_x = std::max<long>(2, atom_getlong(av)); x->lat.init((int)x->p_lat_x,(int)x->p_lat_y,(int)x->p_lat_z); }
+  return MAX_ERR_NONE;
+}
+t_max_err set_lat_y(t_aureonoise* x, void*, long ac, t_atom* av){
+  if(ac&&av){ x->p_lat_y = std::max<long>(2, atom_getlong(av)); x->lat.init((int)x->p_lat_x,(int)x->p_lat_y,(int)x->p_lat_z); }
+  return MAX_ERR_NONE;
+}
+t_max_err set_lat_z(t_aureonoise* x, void*, long ac, t_atom* av){
+  if(ac&&av){ x->p_lat_z = std::max<long>(1, atom_getlong(av)); x->lat.init((int)x->p_lat_x,(int)x->p_lat_y,(int)x->p_lat_z); }
+  return MAX_ERR_NONE;
+}
+#endif
 
 // ===================== COMANDI =====================
 void aureonoise_clear(t_aureonoise* x)
@@ -513,6 +722,9 @@ void aureonoise_clear(t_aureonoise* x)
 void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long, long)
 {
   x->sr = (sr > 0 ? sr : 44100.0);
+#if AUREO_THERMO_LATTICE
+  x->lat_phase = 0.0;
+#endif
   object_method(dsp64, gensym("dsp_add64"), x, (method)aureonoise_perform64, 0, NULL);
 }
 
@@ -537,6 +749,9 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
   const double fltHz = map_phi_range(7.0, 12.0, clamp01(x->p_vhs_flutter));
   const double incWow = wowHz / x->sr;
   const double incFlt = fltHz / x->sr;
+#if AUREO_THERMO_LATTICE
+  const double lat_inc = clamp(x->p_lat_rate, 1.0, 2000.0) / x->sr;
+#endif
 
   for (long n = 0; n < sampleframes; ++n) {
     // Aggiorna LFO
@@ -545,6 +760,27 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
     double wow = std::sin(2.0*M_PI*x->lfo_wow_phase);
     double flt = std::sin(2.0*M_PI*x->lfo_flut_phase);
     double vhs_mod = 0.5*wow + 0.5*flt; // -1..+1
+
+#if AUREO_THERMO_LATTICE
+    // Tick lattice/OU a control-rate
+    x->lat_phase += lat_inc;
+    if (x->lat_phase >= 1.0) {
+      int k = (int)std::floor(x->lat_phase);
+      double dt = (double)k / std::max(1.0, x->p_lat_rate);
+      for (int i=0;i<k;++i) x->lat.step(x->rng);
+      double T = clamp01(x->p_T);
+      x->ou_pan.sigma  = 0.40 * T;  x->ou_itd.sigma  = 0.35 * T;
+      x->ou_amp.sigma  = 0.30 * T;  x->ou_rate.sigma = 0.25 * T;
+      x->ou_pan.step(dt, 0.0, x->rng);
+      x->ou_itd.step(dt, 0.0, x->rng);
+      x->ou_amp.step(dt, 0.0, x->rng);
+      x->ou_rate.step(dt, 0.0, x->rng);
+#if AUREO_BURST_HAWKES
+      (void)x->hawkes.tick(dt, x->rng);
+#endif
+      x->lat_phase -= (double)k;
+    }
+#endif
 
     // Sorgente di rumore comune
     double nz = colored_noise_sample(x);
@@ -564,15 +800,34 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
         double u3 = x->w_pl .next();
         double u4 = x->rng.uni01();
 
+#if AUREO_THERMO_LATTICE
+        double lat_u = 0.5;
+        if (x->p_lattice)  lat_u = 0.5 + 0.5 * std::tanh(x->lat.probe(x->w_phi.next()));
+        double oup = x->p_thermo ? clamp(x->ou_pan.y, -1.0, 1.0) : 0.0;
+        double oua = x->p_thermo ? map_phi_range(1.0/kPhi, kPhi, 0.5 + 0.5*std::tanh(x->ou_amp.y)) : 1.0;
+        double oui = x->p_thermo ? x->ou_itd.y : 0.0;
+#else
+        double lat_u = 0.5; double oup=0.0, oua=1.0, oui=0.0;
+#endif
+
         g.dur = map_len_samples(x, u1);
-        g.amp = kAmpNorm * std::pow(std::max(1e-9, u2), 0.35); // heavy-tail calibrata
+        g.amp = kAmpNorm * std::pow(std::max(1e-9, u2), 0.35)
+                         * map_phi_range(1.0/kPhi, kPhi, lat_u) * oua; // φ @ macro + OU amp
 
         // pan + equal-power
-        double pan = 2.0 * u3 - 1.0; double gL, gR; pan_equal_power(pan, clamp01(x->p_width), gL, gR);
+        double pan = 2.0 * u3 - 1.0;
+#if AUREO_THERMO_LATTICE
+        pan += 0.25*(2.0*lat_u - 1.0) + 0.35*oup; // micro/macro φ + OU
+#endif
+        pan = clamp(pan, -1.0, 1.0);
+        double gL, gR; pan_equal_power(pan, clamp01(x->p_width), gL, gR);
         g.panL = gL; g.panR = gR;
 
         // ITD/ILD (ITD frazionario)
         g.itd = map_itd_samples_frac(x, u2);
+#if AUREO_THERMO_LATTICE
+        g.itd += ((2.0*lat_u - 1.0) * 0.33 + 0.33*oui) * (x->p_itd_us * 1.0e-6 * x->sr);
+#endif
         double ildU = u3; g.gL = map_ild_gain(x->p_ild_db, ildU, true); g.gR = map_ild_gain(x->p_ild_db, ildU, false);
 
         // glitch mode
