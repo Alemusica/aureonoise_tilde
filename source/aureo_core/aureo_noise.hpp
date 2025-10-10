@@ -54,6 +54,8 @@ struct Grain {
   double itd = 0.0;
   double gL = 1.0;
   double gR = 1.0;
+  double crossfeed = 0.0;
+  double focus = 0.0;
   double ipd_coeff = 0.0;
   double ipd_zL = 0.0;
   double ipd_zR = 0.0;

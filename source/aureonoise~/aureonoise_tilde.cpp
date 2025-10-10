@@ -377,6 +377,9 @@ void aureonoise_report(t_aureonoise* x)
   static t_symbol* sym_pan = gensym("pan");
   static t_symbol* sym_itd = gensym("itd_samples");
   static t_symbol* sym_ild = gensym("ild_db");
+  static t_symbol* sym_binaural_az = gensym("binaural_azimuth_deg");
+  static t_symbol* sym_binaural_focus = gensym("binaural_focus");
+  static t_symbol* sym_binaural_cf = gensym("binaural_crossfeed");
   static t_symbol* sym_phi = gensym("phi_u");
   static t_symbol* sym_s2 = gensym("s2_u");
   static t_symbol* sym_pl = gensym("pl_u");
@@ -401,6 +404,9 @@ void aureonoise_report(t_aureonoise* x)
     atom_setsym(av + ac++, sym_pan); atom_setfloat(av + ac++, r.pan);
     atom_setsym(av + ac++, sym_itd); atom_setfloat(av + ac++, r.itd_samples);
     atom_setsym(av + ac++, sym_ild); atom_setfloat(av + ac++, r.ild_db);
+    atom_setsym(av + ac++, sym_binaural_az); atom_setfloat(av + ac++, r.binaural_azimuth_deg);
+    atom_setsym(av + ac++, sym_binaural_focus); atom_setfloat(av + ac++, r.binaural_focus);
+    atom_setsym(av + ac++, sym_binaural_cf); atom_setfloat(av + ac++, r.binaural_crossfeed);
     atom_setsym(av + ac++, sym_phi); atom_setfloat(av + ac++, r.phi_u);
     atom_setsym(av + ac++, sym_s2); atom_setfloat(av + ac++, r.s2_u);
     atom_setsym(av + ac++, sym_pl); atom_setfloat(av + ac++, r.pl_u);
@@ -663,20 +669,20 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
           g.amp = amp;
           g.pan = pan;
 
-          auto gains = x->pinna.gains(pan);
-          g.panL = gains.first;
-          g.panR = gains.second;
+          const auto binaural = x->pinna.coefficients(x->sr, pan, u2, u5);
+          g.panL = binaural.gainL;
+          g.panR = binaural.gainR;
+          g.crossfeed = binaural.crossfeed;
+          g.focus = binaural.focus;
 
-          double itd = aureo::map_itd_samples_frac(x->sr, x->p_itd_us, u2);
+          double itd = binaural.itd_samples;
 #if AUREO_THERMO_LATTICE
           itd += ((2.0 * lat_u - 1.0) * 0.33 + 0.33 * oui) * (x->p_itd_us * 1.0e-6 * x->sr);
 #endif
           g.itd = (1.0 - hemi) * itd - hemi * x->prev_itd;
 
           const double ild_max = aureo::clamp(x->p_ild_db, 0.0, 24.0);
-          const double ild_sign = 2.0 * u5 - 1.0;
-          const double ild_mag = aureo::map_phi_range(0.0, ild_max, std::abs(ild_sign));
-          double ild_db = ild_sign * ild_mag;
+          double ild_db = binaural.ild_db;
           ild_db = aureo::clamp((1.0 - hemi) * ild_db - hemi * x->prev_ild, -ild_max, ild_max);
           g.gL = aureo::db_to_lin(ild_db);
           g.gR = aureo::db_to_lin(-ild_db);
@@ -688,6 +694,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
             const double ipd_spread = 0.25 * ipd_amt_global;
             ipd_coeff = aureo::clamp(ipd_base + ipd_spread * (ipd_shape - 0.5), 0.0, 0.95);
           }
+          ipd_coeff *= (0.7 + 0.3 * g.focus);
           g.ipd_coeff = ipd_coeff;
 
           const double shadow_factor = shadow_amt_global * std::abs(pan);
@@ -737,6 +744,9 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
           report.pan = g.pan;
           report.itd_samples = g.itd;
           report.ild_db = ild_db;
+          report.binaural_azimuth_deg = binaural.azimuth_rad * (180.0 / aureo::kPi);
+          report.binaural_focus = binaural.focus;
+          report.binaural_crossfeed = binaural.crossfeed;
           report.phi_u = u1;
           report.s2_u = u2;
           report.pl_u = u3;
@@ -789,6 +799,13 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
       aureo::ring_read_stereo_itd_frac(x->ring, wi, itd, sL, sR);
       sL *= g.panL * g.gL;
       sR *= g.panR * g.gR;
+
+      if (std::abs(g.crossfeed) > 1.0e-6) {
+        const double baseL = sL;
+        const double baseR = sR;
+        sL = baseL + g.crossfeed * baseR;
+        sR = baseR + g.crossfeed * baseL;
+      }
 
       if (--g.sr_holdCnt <= 0) {
         g.heldL = sL;

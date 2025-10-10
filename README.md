@@ -35,6 +35,7 @@ Puoi anche definire il percorso di installazione del bundle impostando `MAX_PACK
 - Per forzare un rebuild pulito puoi eseguire `CMake: Delete Cache and Reconfigure`.
 - Se stai sviluppando su macOS con architettura differente, modifica `CMAKE_OSX_ARCHITECTURES` nel `CMakeLists.txt` (es. `"arm64;x86_64"` per Universal Binary).
 - Assicurati di lanciare Cycling '74 Max dopo l'installazione per verificare che l'external venga caricato senza errori.
+- La spazializzazione binaurale sintetica sfrutta ora un modello Woodworth/Gaussian crossfeed con report dettagliato degli azimuth, utile da consultare tramite il messaggio `report` di aureonoise~.
 
 ## Risoluzione problemi
 

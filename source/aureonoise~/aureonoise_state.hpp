@@ -34,6 +34,9 @@ struct t_aureonoise {
     double   pan = 0.0;
     double   itd_samples = 0.0;
     double   ild_db = 0.0;
+    double   binaural_azimuth_deg = 0.0;
+    double   binaural_focus = 0.0;
+    double   binaural_crossfeed = 0.0;
     double   phi_u = 0.0;
     double   s2_u = 0.0;
     double   pl_u = 0.0;
