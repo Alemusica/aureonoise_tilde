@@ -14,6 +14,48 @@
 #include <xmmintrin.h>
 #endif
 
+static void aureonoise_reset_reports(t_aureonoise* x)
+{
+  if (!x) return;
+  if (x->report_mu) systhread_mutex_lock(x->report_mu);
+  x->report_head = 0;
+  x->report_count = 0;
+  x->report_total.store(0, std::memory_order_relaxed);
+  x->report_dropped.store(0, std::memory_order_relaxed);
+  for (auto& entry : x->report_log) entry = {};
+  if (x->report_mu) systhread_mutex_unlock(x->report_mu);
+}
+
+static void aureonoise_log_grain_event(t_aureonoise* x, const t_aureonoise::GrainReport& report)
+{
+  if (!x) return;
+  bool stored = false;
+  if (x->report_mu) {
+    if (systhread_mutex_trylock(x->report_mu) == 0) {
+      const size_t cap = x->report_log.size();
+      if (cap > 0) {
+        x->report_log[x->report_head] = report;
+        x->report_head = (x->report_head + 1) % cap;
+        if (x->report_count < cap) ++x->report_count;
+      }
+      stored = true;
+      systhread_mutex_unlock(x->report_mu);
+    }
+  } else {
+    const size_t cap = x->report_log.size();
+    if (cap > 0) {
+      x->report_log[x->report_head] = report;
+      x->report_head = (x->report_head + 1) % cap;
+      if (x->report_count < cap) ++x->report_count;
+    }
+    stored = true;
+  }
+
+  if (!stored) {
+    x->report_dropped.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
 static inline double aureonoise_allpass(double x, double a, double& z)
 {
   const double y = -a * x + z;
@@ -76,10 +118,10 @@ static t_class* s_aureonoise_class = nullptr;
 
 static uint32_t map_len_samples(t_aureonoise* x, double u)
 {
-  const double base = aureo::clamp(x->p_baselen_ms, 5.0, 2000.0) * 0.001 * x->sr;
+  const double base = aureo::clamp(x->p_baselen_ms, aureo::kMinBaseLengthMs, 2000.0) * 0.001 * x->sr;
   const double kexp = (2.0 * u - 1.0) * aureo::clamp01(x->p_len_phi);
   double L = base * std::pow(aureo::kPhi, kexp);
-  L = aureo::clamp(L, 32.0, x->sr * 4.0);
+  L = aureo::clamp(L, aureo::kMinGrainSamples, x->sr * 4.0);
   return static_cast<uint32_t>(L);
 }
 
@@ -93,12 +135,12 @@ static int find_free_grain(t_aureonoise* x)
 
 static int schedule_gap_samples(t_aureonoise* x)
 {
-  double rate = aureo::clamp(x->p_rate, 0.0, 50.0);
+  double rate = aureo::clamp(x->p_rate, 0.0, aureo::kMaxEventRateHz);
 #if AUREO_THERMO_LATTICE
   if (x->p_thermo) {
     const double ur = 0.5 + 0.5 * std::tanh(x->ou_rate.y);
     const double rate_phi = aureo::map_phi_range(std::max(0.001, x->p_rate / aureo::kPhi), x->p_rate * aureo::kPhi, ur);
-    rate = aureo::clamp(rate_phi, 0.0, 50.0);
+    rate = aureo::clamp(rate_phi, 0.0, aureo::kMaxEventRateHz);
   }
 #endif
   if (rate <= 1e-6) {
@@ -115,7 +157,7 @@ static int schedule_gap_samples(t_aureonoise* x)
 
   const double U = std::max(1.0e-12, x->rng.uni01());
   double gap_sec = -std::log(U) / lambda;
-  const double base_rate = aureo::clamp(x->p_rate, 0.0, 50.0);
+  const double base_rate = aureo::clamp(x->p_rate, 0.0, aureo::kMaxEventRateHz);
   const double cap_sec = (base_rate > 1e-6) ? std::min(30.0, 4.0 / base_rate) : 0.25;
   gap_sec = std::min(gap_sec, cap_sec);
   return static_cast<int>(std::max(1.0, std::round(gap_sec * x->sr)));
@@ -157,6 +199,7 @@ extern "C" int C74_EXPORT main(void)
 
   class_addmethod(c, (method)aureonoise_assist, "assist", A_CANT, 0);
   class_addmethod(c, (method)aureonoise_clear,  "clear", 0);
+  class_addmethod(c, (method)aureonoise_report, "report", 0);
   class_addmethod(c, (method)aureonoise_dsp64,  "dsp64", A_CANT, 0);
   class_dspinit(c);
 
@@ -200,9 +243,13 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
   dsp_setup(reinterpret_cast<t_pxobject*>(x), 0);
   outlet_new(reinterpret_cast<t_object*>(x), "signal");
   outlet_new(reinterpret_cast<t_object*>(x), "signal");
+  x->out_info = outlet_new(reinterpret_cast<t_object*>(x), NULL);
 
   x->sr = sys_getsr();
   if (x->sr <= 0) x->sr = 44100.0;
+
+  systhread_mutex_new(&x->report_mu, 0);
+  aureonoise_reset_reports(x);
 
   reset_sequences(x);
   make_small_primes(x);
@@ -256,6 +303,11 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
 void aureonoise_free(t_aureonoise* x)
 {
   dsp_free(reinterpret_cast<t_pxobject*>(x));
+  if (x->report_mu) {
+    systhread_mutex_free(x->report_mu);
+    x->report_mu = nullptr;
+  }
+  x->out_info = nullptr;
 #if AUREO_THERMO_LATTICE
   if (x->lat_mu) {
     systhread_mutex_free(x->lat_mu);
@@ -269,7 +321,116 @@ void aureonoise_assist(t_aureonoise*, void*, long m, long a, char* s)
   if (m == ASSIST_INLET)
     snprintf_zero(s, 256, "(no inlet)");
   else
-    snprintf_zero(s, 256, (a == 0) ? "Out L (aureo glitch noise)" : "Out R (aureo glitch noise)");
+    snprintf_zero(s, 256,
+                  (a == 0) ? "Out L (aureo glitch noise)" :
+                  (a == 1) ? "Out R (aureo glitch noise)" :
+                             "Report (event log, diagnostica stocastica)");
+}
+
+void aureonoise_report(t_aureonoise* x)
+{
+  if (!x || !x->out_info) return;
+
+  std::vector<t_aureonoise::GrainReport> snapshot;
+  if (x->report_mu) systhread_mutex_lock(x->report_mu);
+  const size_t count = x->report_count;
+  const size_t cap = x->report_log.size();
+  if (cap > 0 && count > 0) {
+    snapshot.reserve(count);
+    size_t idx = (count < cap) ? ((x->report_head + cap - count) % cap) : x->report_head;
+    for (size_t i = 0; i < count; ++i) {
+      snapshot.push_back(x->report_log[idx]);
+      idx = (idx + 1) % cap;
+    }
+  }
+  if (x->report_mu) systhread_mutex_unlock(x->report_mu);
+
+  const double sr = (x->sr > 0.0) ? x->sr : 44100.0;
+  double sum_gap = 0.0;
+  double sum_gap_sq = 0.0;
+  for (const auto& r : snapshot) {
+    sum_gap += r.gap_samples;
+    sum_gap_sq += r.gap_samples * r.gap_samples;
+  }
+  const double n = static_cast<double>(snapshot.size());
+  const double mean_gap_samples = (n > 0.0) ? (sum_gap / n) : 0.0;
+  const double mean_gap_sec = mean_gap_samples / sr;
+  double var_gap_samples = 0.0;
+  if (n > 0.0) {
+    const double mean_sq = mean_gap_samples * mean_gap_samples;
+    var_gap_samples = std::max(0.0, (sum_gap_sq / n) - mean_sq);
+  }
+  const double std_gap_sec = std::sqrt(var_gap_samples) / sr;
+  const double mean_rate = (mean_gap_sec > 1.0e-9) ? (1.0 / mean_gap_sec) : 0.0;
+  const double gap_cv = (mean_gap_sec > 1.0e-9) ? (std_gap_sec / mean_gap_sec) : 0.0;
+
+  static t_symbol* sym_grain = gensym("grain");
+  static t_symbol* sym_summary = gensym("summary");
+  static t_symbol* sym_id = gensym("id");
+  static t_symbol* sym_time = gensym("time_ms");
+  static t_symbol* sym_gap = gensym("gap_ms");
+  static t_symbol* sym_dur = gensym("dur_ms");
+  static t_symbol* sym_amp = gensym("amp");
+  static t_symbol* sym_pan = gensym("pan");
+  static t_symbol* sym_itd = gensym("itd_samples");
+  static t_symbol* sym_ild = gensym("ild_db");
+  static t_symbol* sym_phi = gensym("phi_u");
+  static t_symbol* sym_s2 = gensym("s2_u");
+  static t_symbol* sym_pl = gensym("pl_u");
+  static t_symbol* sym_rng4 = gensym("rng4_u");
+  static t_symbol* sym_rng5 = gensym("rng5_u");
+  static t_symbol* sym_rng6 = gensym("rng6_u");
+  static t_symbol* sym_lat_u = gensym("lat_u");
+  static t_symbol* sym_lat_v = gensym("lat_v");
+  static t_symbol* sym_lambda = gensym("hawkes_lambda");
+  static t_symbol* sym_burst = gensym("burst");
+  static t_symbol* sym_thermo = gensym("thermo");
+  static t_symbol* sym_lattice = gensym("lattice");
+
+  for (const auto& r : snapshot) {
+    t_atom av[40];
+    long ac = 0;
+    atom_setsym(av + ac++, sym_id); atom_setlong(av + ac++, static_cast<t_atom_long>(r.index));
+    atom_setsym(av + ac++, sym_time); atom_setfloat(av + ac++, r.timestamp_sec * 1000.0);
+    atom_setsym(av + ac++, sym_gap); atom_setfloat(av + ac++, (r.gap_samples / sr) * 1000.0);
+    atom_setsym(av + ac++, sym_dur); atom_setfloat(av + ac++, (r.dur_samples / sr) * 1000.0);
+    atom_setsym(av + ac++, sym_amp); atom_setfloat(av + ac++, r.amp);
+    atom_setsym(av + ac++, sym_pan); atom_setfloat(av + ac++, r.pan);
+    atom_setsym(av + ac++, sym_itd); atom_setfloat(av + ac++, r.itd_samples);
+    atom_setsym(av + ac++, sym_ild); atom_setfloat(av + ac++, r.ild_db);
+    atom_setsym(av + ac++, sym_phi); atom_setfloat(av + ac++, r.phi_u);
+    atom_setsym(av + ac++, sym_s2); atom_setfloat(av + ac++, r.s2_u);
+    atom_setsym(av + ac++, sym_pl); atom_setfloat(av + ac++, r.pl_u);
+    atom_setsym(av + ac++, sym_rng4); atom_setfloat(av + ac++, r.rng4);
+    atom_setsym(av + ac++, sym_rng5); atom_setfloat(av + ac++, r.rng5);
+    atom_setsym(av + ac++, sym_rng6); atom_setfloat(av + ac++, r.rng6);
+    atom_setsym(av + ac++, sym_lat_u); atom_setfloat(av + ac++, r.lattice_u);
+    atom_setsym(av + ac++, sym_lat_v); atom_setfloat(av + ac++, r.lattice_v);
+    atom_setsym(av + ac++, sym_lambda); atom_setfloat(av + ac++, r.hawkes_lambda);
+    atom_setsym(av + ac++, sym_burst); atom_setlong(av + ac++, r.burst_on ? 1 : 0);
+    atom_setsym(av + ac++, sym_thermo); atom_setlong(av + ac++, r.thermo_on ? 1 : 0);
+    atom_setsym(av + ac++, sym_lattice); atom_setlong(av + ac++, r.lattice_on ? 1 : 0);
+    outlet_anything(x->out_info, sym_grain, ac, av);
+  }
+
+  const uint64_t total_events = x->report_total.load(std::memory_order_relaxed);
+  const uint64_t dropped_events = x->report_dropped.load(std::memory_order_relaxed);
+
+  t_atom summary[16];
+  long sc = 0;
+  atom_setsym(summary + sc++, gensym("events_total"));
+  atom_setlong(summary + sc++, static_cast<t_atom_long>(total_events));
+  atom_setsym(summary + sc++, gensym("events_buffered"));
+  atom_setlong(summary + sc++, static_cast<t_atom_long>(snapshot.size()));
+  atom_setsym(summary + sc++, gensym("mean_gap_ms"));
+  atom_setfloat(summary + sc++, mean_gap_sec * 1000.0);
+  atom_setsym(summary + sc++, gensym("mean_rate_hz"));
+  atom_setfloat(summary + sc++, mean_rate);
+  atom_setsym(summary + sc++, gensym("gap_cv"));
+  atom_setfloat(summary + sc++, gap_cv);
+  atom_setsym(summary + sc++, gensym("dropped"));
+  atom_setlong(summary + sc++, static_cast<t_atom_long>(dropped_events));
+  outlet_anything(x->out_info, sym_summary, sc, summary);
 }
 
 void aureonoise_clear(t_aureonoise* x)
@@ -288,6 +449,7 @@ void aureonoise_clear(t_aureonoise* x)
   x->prev_ild = 0.0;
   x->last_gap_samples = 0.0;
   x->last_dur_samples = 0.0;
+  aureonoise_reset_reports(x);
 #if AUREO_THERMO_LATTICE
   x->lat_phase = 0.0;
   x->lat_last_v = 0.0;
@@ -301,6 +463,7 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
   x->samples_to_next = static_cast<int>(std::max(1.0, x->sr * 0.05));
   x->gap_elapsed = 0;
   x->sample_counter = 0;
+  aureonoise_reset_reports(x);
   x->pinna.width = x->p_width;
   x->pinna.itd_us = x->p_itd_us;
   x->pinna.ild_db = x->p_ild_db;
@@ -489,6 +652,10 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 
         bool ok = aureonoise_poisson_enforce(x, pan, min_pan_norm, min_time_samples);
         if (ok) {
+          const uint64_t report_idx = x->report_total.fetch_add(1, std::memory_order_relaxed) + 1;
+          const double timestamp_sec = (x->sr > 0.0) ? (static_cast<double>(x->sample_counter) / x->sr)
+                                                     : 0.0;
+
           g.dur = map_len_samples(x, u1);
           g.amp = amp;
           g.pan = pan;
@@ -558,6 +725,42 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
           x->last_gap_samples = gap_samples;
           x->last_dur_samples = static_cast<double>(g.dur);
           x->gap_elapsed = 0;
+          t_aureonoise::GrainReport report;
+          report.index = report_idx;
+          report.timestamp_sec = timestamp_sec;
+          report.gap_samples = gap_samples;
+          report.dur_samples = static_cast<double>(g.dur);
+          report.amp = g.amp;
+          report.pan = g.pan;
+          report.itd_samples = g.itd;
+          report.ild_db = ild_db;
+          report.phi_u = u1;
+          report.s2_u = u2;
+          report.pl_u = u3;
+          report.rng4 = u4;
+          report.rng5 = u5;
+          report.rng6 = u6;
+#if AUREO_THERMO_LATTICE
+          report.lattice_u = lat_u;
+          report.lattice_v = x->lat_last_v;
+          report.thermo_on = (x->p_thermo != 0);
+          report.lattice_on = (x->p_lattice != 0);
+#if AUREO_BURST_HAWKES
+          report.hawkes_lambda = x->hawkes.lambda;
+          report.burst_on = (x->p_burst != 0) && (x->hawkes.lambda > x->hawkes.base + 1.0);
+#else
+          report.hawkes_lambda = 0.0;
+          report.burst_on = false;
+#endif
+#else
+          report.lattice_u = 0.5;
+          report.lattice_v = 0.0;
+          report.thermo_on = false;
+          report.lattice_on = false;
+          report.hawkes_lambda = 0.0;
+          report.burst_on = false;
+#endif
+          aureonoise_log_grain_event(x, report);
           spawned = true;
         }
       }
