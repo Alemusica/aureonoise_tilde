@@ -35,22 +35,6 @@ struct NoiseColorState {
   }
 };
 
-struct Biquad {
-  double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-  double a1 = 0.0, a2 = 0.0;
-  double z1 = 0.0, z2 = 0.0;
-
-  double process(double x)
-  {
-    double y = b0 * x + z1;
-    z1 = b1 * x - a1 * y + z2;
-    z2 = b2 * x - a2 * y;
-    return y;
-  }
-
-  void reset() { z1 = z2 = 0.0; }
-};
-
 struct Grain {
   bool on = false;
   uint32_t age = 0;

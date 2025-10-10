@@ -82,7 +82,7 @@ static void reset_sequences(t_aureonoise* x)
   x->noise.color = static_cast<aureo::NoiseColor>(x->p_noise_color);
   x->noise.amount = aureo::clamp01(x->p_color_amt);
   x->noise.reset();
-  x->tone.reset();
+  x->tone.clear();
 }
 
 extern "C" int C74_EXPORT main(void)
@@ -129,6 +129,12 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
   x->pinna.width = x->p_width;
   x->pinna.itd_us = x->p_itd_us;
   x->pinna.ild_db = x->p_ild_db;
+  x->pinna_enabled = (x->p_pinna_on != 0);
+  aureonoise_update_pinna_state(x);
+  x->pinna_mix = x->pinna_mix_target;
+  aureonoise_update_pinna_filters(x);
+  x->pinna_notchL.clear();
+  x->pinna_notchR.clear();
   x->field.temperature = 0.45;
 
 #if AUREO_THERMO_LATTICE
@@ -172,6 +178,9 @@ void aureonoise_clear(t_aureonoise* x)
   x->samples_to_next = static_cast<int>(x->sr * 0.1);
   x->sample_counter = 0;
   x->noise.reset();
+  x->pinna_mix = x->pinna_mix_target;
+  x->pinna_notchL.clear();
+  x->pinna_notchR.clear();
 }
 
 void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long, long)
@@ -180,6 +189,15 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
   x->pinna.width = x->p_width;
   x->pinna.itd_us = x->p_itd_us;
   x->pinna.ild_db = x->p_ild_db;
+  const bool was_on = x->pinna_enabled;
+  x->pinna_enabled = (x->p_pinna_on != 0);
+  if (was_on != x->pinna_enabled) {
+    x->pinna_notchL.clear();
+    x->pinna_notchR.clear();
+  }
+  aureonoise_update_pinna_state(x);
+  x->pinna_mix = x->pinna_mix_target;
+  aureonoise_update_pinna_filters(x);
 #if AUREO_THERMO_LATTICE
   x->lat_phase = 0.0;
 #endif
@@ -200,6 +218,24 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
   _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 #endif
 
+  if (x->pinna_filters_dirty) {
+    aureonoise_update_pinna_filters(x);
+  }
+  const bool pinna_now = (x->p_pinna_on != 0);
+  if (pinna_now != x->pinna_enabled) {
+    x->pinna_enabled = pinna_now;
+    x->pinna_notchL.clear();
+    x->pinna_notchR.clear();
+  }
+  aureonoise_update_pinna_state(x);
+  double pinna_mix = x->pinna_mix;
+  const double pinna_target = x->pinna_mix_target;
+  const double pinna_depth_norm = aureo::clamp01(x->pinna_depth / 24.0);
+  double mix_denom = x->sr * 0.02;
+  if (mix_denom < 1.0) mix_denom = 1.0;
+  const double pinna_mix_step = 1.0 / mix_denom;
+  const bool pinna_active = x->pinna_enabled;
+
   uint32_t wi = x->ring.writeIndex;
   x->noise.color = static_cast<aureo::NoiseColor>(x->p_noise_color);
   x->noise.amount = aureo::clamp01(x->p_color_amt);
@@ -218,6 +254,9 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
     const double wow = std::sin(2.0 * aureo::kPi * x->lfo_wow_phase);
     const double flt = std::sin(2.0 * aureo::kPi * x->lfo_flut_phase);
     const double vhs_mod = 0.5 * wow + 0.5 * flt;
+
+    pinna_mix += (pinna_target - pinna_mix) * pinna_mix_step;
+    pinna_mix = aureo::clamp01(pinna_mix);
 
 #if AUREO_THERMO_LATTICE
     x->lat_phase += lat_inc;
@@ -242,6 +281,9 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 #endif
 
     double nz = x->noise.process(x->rng);
+#ifdef __aarch64__
+    nz += 1.0e-20;
+#endif
     nz = aureo::soft_tanh(nz * 1.2);
     x->ring.data[wi] = nz;
 
@@ -343,6 +385,17 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
       ++g.age;
     }
 
+    if (pinna_active) {
+      const double w = pinna_mix * pinna_depth_norm;
+      const double dryL = yL;
+      const double dryR = yR;
+      const double wetL = x->pinna_notchL.proc(dryL);
+      const double wetR = x->pinna_notchR.proc(dryR);
+      const double dry_w = 1.0 - w;
+      yL = dry_w * dryL + w * wetL;
+      yR = dry_w * dryR + w * wetR;
+    }
+
     yL = std::tanh(yL * aureo::kOutDrive) / aureo::kOutDrive;
     yR = std::tanh(yR * aureo::kOutDrive) / aureo::kOutDrive;
 
@@ -353,6 +406,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
     ++x->sample_counter;
   }
 
+  x->pinna_mix = pinna_mix;
   x->ring.writeIndex = wi;
 }
 
