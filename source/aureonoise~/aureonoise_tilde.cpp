@@ -118,8 +118,12 @@ static t_class* s_aureonoise_class = nullptr;
 
 static uint32_t map_len_samples(t_aureonoise* x, double u)
 {
-  const double base = aureo::clamp(x->p_baselen_ms, aureo::kMinBaseLengthMs, 2000.0) * 0.001 * x->sr;
-  const double kexp = (2.0 * u - 1.0) * aureo::clamp01(x->p_len_phi);
+  const double base_ms = (x->golden.baselen_ms > 0.0)
+                             ? aureo::clamp(x->golden.baselen_ms, aureo::kMinBaseLengthMs, 2000.0)
+                             : aureo::kMinBaseLengthMs;
+  const double base = base_ms * 0.001 * x->sr;
+  const double len_shape = aureo::clamp(x->golden.len_phi, 0.0, 2.0);
+  const double kexp = (2.0 * u - 1.0) * len_shape;
   double L = base * std::pow(aureo::kPhi, kexp);
   L = aureo::clamp(L, aureo::kMinGrainSamples, x->sr * 4.0);
   return static_cast<uint32_t>(L);
@@ -135,11 +139,13 @@ static int find_free_grain(t_aureonoise* x)
 
 static int schedule_gap_samples(t_aureonoise* x)
 {
-  double rate = aureo::clamp(x->p_rate, 0.0, aureo::kMaxEventRateHz);
+  double rate = aureo::clamp(x->golden.rate, 0.0, aureo::kMaxEventRateHz);
 #if AUREO_THERMO_LATTICE
-  if (x->p_thermo) {
+  if (x->p_thermo && rate > 0.0) {
     const double ur = 0.5 + 0.5 * std::tanh(x->ou_rate.y);
-    const double rate_phi = aureo::map_phi_range(std::max(0.001, x->p_rate / aureo::kPhi), x->p_rate * aureo::kPhi, ur);
+    const double lo = std::max(0.001, rate / aureo::kPhi);
+    const double hi = std::max(lo * 1.001, std::min(aureo::kMaxEventRateHz, rate * aureo::kPhi));
+    const double rate_phi = aureo::map_phi_range(lo, hi, ur);
     rate = aureo::clamp(rate_phi, 0.0, aureo::kMaxEventRateHz);
   }
 #endif
@@ -157,7 +163,7 @@ static int schedule_gap_samples(t_aureonoise* x)
 
   const double U = std::max(1.0e-12, x->rng.uni01());
   double gap_sec = -std::log(U) / lambda;
-  const double base_rate = aureo::clamp(x->p_rate, 0.0, aureo::kMaxEventRateHz);
+  const double base_rate = std::max(rate, 0.0);
   const double cap_sec = (base_rate > 1e-6) ? std::min(30.0, 4.0 / base_rate) : 0.25;
   gap_sec = std::min(gap_sec, cap_sec);
   return static_cast<int>(std::max(1.0, std::round(gap_sec * x->sr)));
@@ -180,9 +186,10 @@ static void reset_sequences(t_aureonoise* x)
   x->w_pl.set_step(aureo::kInvPlastic);
 #endif
   x->noise.color = static_cast<aureo::NoiseColor>(x->p_noise_color);
-  x->noise.amount = aureo::clamp01(x->p_color_amt);
+  x->noise.amount = aureonoise_phi_project_unit(aureo::clamp01(x->p_color_amt));
   x->noise.reset();
   x->tone.clear();
+  aureonoise_refresh_golden_params(x);
 }
 
 extern "C" int C74_EXPORT main(void)
@@ -300,6 +307,7 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
 #endif
 
   attr_args_process(x, static_cast<short>(argc), argv);
+  aureonoise_refresh_golden_params(x);
   return x;
 }
 
@@ -463,6 +471,7 @@ void aureonoise_clear(t_aureonoise* x)
   x->lat_phase = 0.0;
   x->lat_last_v = 0.0;
 #endif
+  aureonoise_refresh_golden_params(x);
 }
 
 void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long, long)
@@ -501,6 +510,7 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
   x->prev_ild = 0.0;
   x->last_gap_samples = 0.0;
   x->last_dur_samples = 0.0;
+  aureonoise_refresh_golden_params(x);
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
@@ -519,6 +529,8 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
   double* outL = (numouts >= 1 && outs[0]) ? outs[0] : nullptr;
   double* outR = (numouts >= 2 && outs[1]) ? outs[1] : nullptr;
   if (!outL || !outR) return;
+
+  aureonoise_refresh_golden_params(x);
 
 #ifdef __SSE2__
   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
@@ -545,20 +557,20 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 
   uint32_t wi = x->ring.writeIndex;
   x->noise.color = static_cast<aureo::NoiseColor>(x->p_noise_color);
-  x->noise.amount = aureo::clamp01(x->p_color_amt);
+  x->noise.amount = aureonoise_phi_project_unit(aureo::clamp01(x->p_color_amt));
 
-  const double wowHz = aureo::map_phi_range(0.1, 1.5, aureo::clamp01(x->p_vhs_wow));
-  const double fltHz = aureo::map_phi_range(7.0, 12.0, aureo::clamp01(x->p_vhs_flutter));
+  const double wowHz = aureo::map_phi_range(0.1, 1.5, aureonoise_phi_project_unit(aureo::clamp01(x->p_vhs_wow)));
+  const double fltHz = aureo::map_phi_range(7.0, 12.0, aureonoise_phi_project_unit(aureo::clamp01(x->p_vhs_flutter)));
   const double incWow = wowHz / x->sr;
   const double incFlt = fltHz / x->sr;
 #if AUREO_THERMO_LATTICE
   const double lat_inc = aureo::clamp(x->p_lat_rate, 1.0, 2000.0) / x->sr;
 #endif
   const double itd_scale = x->p_itd_us * 1.0e-6 * x->sr;
-  const double min_pan_norm = aureo::clamp(x->p_spat_min_deg, 0.0, 180.0) / 90.0;
-  const double min_time_samples = aureo::clamp(x->p_spat_min_ms, 0.0, 500.0) * 0.001 * x->sr;
-  const double ipd_amt_global = aureo::clamp01(x->p_spat_ipd);
-  const double shadow_amt_global = aureo::clamp01(x->p_spat_shadow);
+  const double min_pan_norm = aureo::clamp(x->golden.spat_min_deg, 0.0, 180.0) / 90.0;
+  const double min_time_samples = aureo::clamp(x->golden.spat_min_ms, 0.0, 500.0) * 0.001 * x->sr;
+  const double ipd_amt_global = aureonoise_phi_project_unit(aureo::clamp01(x->p_spat_ipd));
+  const double shadow_amt_global = aureonoise_phi_project_unit(aureo::clamp01(x->p_spat_shadow));
 
   for (long n = 0; n < sampleframes; ++n) {
     ++x->gap_elapsed;
@@ -622,7 +634,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
         const double gap_samples = static_cast<double>(x->gap_elapsed);
         const double prev_dur = std::max(1.0, x->last_dur_samples);
         const double ratio_gap = gap_samples / prev_dur;
-        const double coupling = aureo::clamp01(x->p_hemis_coupling);
+        const double coupling = aureo::clamp01(x->golden.hemis_coupling);
         const double time_weight = aureo::clamp(0.35 + 0.65 * (ratio_gap / (ratio_gap + 1.0)), 0.35, 1.0);
         const double hemi = coupling * time_weight;
 
@@ -658,6 +670,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
         pan += 0.25 * (2.0 * lat_u - 1.0) + 0.35 * oup;
 #endif
         pan = aureo::clamp((1.0 - hemi) * pan - hemi * x->prev_pan, -1.0, 1.0);
+        pan = aureo::clamp(2.0 * aureonoise_phi_project_unit(0.5 + 0.5 * pan) - 1.0, -1.0, 1.0);
 
         bool ok = aureonoise_poisson_enforce(x, pan, min_pan_norm, min_time_samples);
         if (ok) {
@@ -708,21 +721,21 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
             g.shadow_right = (pan < 0.0);
           }
 
-          g.kind = aureo::choose_kind(x->p_glitch_mix, u4);
+          g.kind = aureo::choose_kind(aureonoise_phi_project_unit(aureo::clamp01(x->p_glitch_mix)), u4);
 
-          int srN = aureo::map_sr_hold_base(x->p_srcrush_amt, u1);
+          int srN = aureo::map_sr_hold_base(aureonoise_phi_project_unit(aureo::clamp01(x->p_srcrush_amt)), u1);
 #if AUREO_SR_PRIME_SNAP
           g.sr_holdN = pick_prime_in_range(x, std::max(1, srN - 7), srN + 7, u2);
 #else
           g.sr_holdN = srN;
 #endif
           g.sr_holdCnt = g.sr_holdN;
-          g.q_levels = (1 << (aureo::map_bits(x->p_bitcrush_amt) - 1)) - 1;
+          g.q_levels = (1 << (aureo::map_bits(aureonoise_phi_project_unit(aureo::clamp01(x->p_bitcrush_amt))) - 1)) - 1;
 
-          const auto envShape = x->field.make_envelope(x->p_env_attack,
-                                                       x->p_env_decay,
-                                                       x->p_env_sustain,
-                                                       x->p_env_release,
+          const auto envShape = x->field.make_envelope(x->golden.env_attack,
+                                                       x->golden.env_decay,
+                                                       x->golden.env_sustain,
+                                                       x->golden.env_release,
                                                        gap_samples,
                                                        static_cast<double>(g.dur),
                                                        std::abs(pan));

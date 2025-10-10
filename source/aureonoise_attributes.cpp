@@ -253,18 +253,21 @@ void aureonoise_setup_attributes(t_class* c)
 t_max_err set_rate(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_rate = aureo::clamp(atom_getfloat(av), 0.0, aureo::kMaxEventRateHz);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_baselen(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_baselen_ms = aureo::clamp(atom_getfloat(av), aureo::kMinBaseLengthMs, 2000.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_lenphi(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_len_phi = aureo::clamp(atom_getfloat(av), 0.0, 2.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
@@ -276,6 +279,7 @@ t_max_err set_width(t_aureonoise* x, void*, long ac, t_atom* av)
     aureonoise_mark_pinna_dirty(x);
     aureonoise_update_pinna_filters(x);
   }
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
@@ -285,6 +289,7 @@ t_max_err set_itd(t_aureonoise* x, void*, long ac, t_atom* av)
     x->p_itd_us = aureo::clamp(atom_getfloat(av), 0.0, 1000.0);
     x->pinna.itd_us = x->p_itd_us;
   }
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
@@ -294,60 +299,70 @@ t_max_err set_ild(t_aureonoise* x, void*, long ac, t_atom* av)
     x->p_ild_db = aureo::clamp(atom_getfloat(av), 0.0, 24.0);
     x->pinna.ild_db = x->p_ild_db;
   }
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_spat_min_deg(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_spat_min_deg = aureo::clamp(atom_getfloat(av), 0.0, 180.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_spat_min_ms(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_spat_min_ms = aureo::clamp(atom_getfloat(av), 0.0, 500.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_spat_ipd(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_spat_ipd = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_spat_shadow(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_spat_shadow = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_env_attack(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_env_attack = aureo::clamp(atom_getfloat(av), 0.01, 4.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_env_decay(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_env_decay = aureo::clamp(atom_getfloat(av), 0.01, 4.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_env_sustain(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_env_sustain = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_env_release(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_env_release = aureo::clamp(atom_getfloat(av), 0.01, 4.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_hemis_coupling(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_hemis_coupling = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
@@ -367,6 +382,7 @@ t_max_err set_noise_color(t_aureonoise* x, void*, long ac, t_atom* av)
     }
     x->noise.color = static_cast<aureo::NoiseColor>(x->p_noise_color);
   }
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
@@ -374,38 +390,44 @@ t_max_err set_color_amt(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_color_amt = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
-    x->noise.amount = x->p_color_amt;
+    x->noise.amount = aureonoise_phi_project_unit(x->p_color_amt);
   }
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_vhs_wow(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_vhs_wow = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_vhs_flutter(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_vhs_flutter = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_glitch_mix(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_glitch_mix = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_srcrush(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_srcrush_amt = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_bitcrush(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_bitcrush_amt = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
@@ -429,6 +451,7 @@ t_max_err set_seed(t_aureonoise* x, void*, long ac, t_atom* av)
 #endif
     x->noise.reset();
   }
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
@@ -447,6 +470,7 @@ t_max_err set_pinna_on(t_aureonoise* x, void*, long ac, t_atom* av)
     x->pinna_enabled = now_on;
     aureonoise_update_pinna_filters(x);
   }
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
@@ -456,6 +480,7 @@ t_max_err set_pinna_depth(t_aureonoise* x, void*, long ac, t_atom* av)
     x->p_pinna_depth = aureo::clamp(atom_getfloat(av), 0.0, 24.0);
     aureonoise_update_pinna_state(x);
   }
+  aureonoise_refresh_golden_params(x);
   return MAX_ERR_NONE;
 }
 
