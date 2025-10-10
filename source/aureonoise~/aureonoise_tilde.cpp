@@ -6,6 +6,7 @@
 
 #include "aureonoise_state.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 #ifdef __SSE2__
@@ -49,7 +50,10 @@ static int schedule_gap_samples(t_aureonoise* x)
     rate = aureo::clamp(rate_phi, 0.0, 50.0);
   }
 #endif
-  if (rate <= 1e-6) return static_cast<int>(x->sr * 0.25);
+  if (rate <= 1e-6) {
+    const double fallback = std::max(1.0, x->sr * 0.25);
+    return static_cast<int>(fallback);
+  }
 
   const double t = static_cast<double>(x->sample_counter) / x->sr;
   double lambda = rate * (1.0 + 0.2 * std::sin(2.0 * aureo::kPi * (t * (1.0 / aureo::kPhi))));
@@ -59,7 +63,10 @@ static int schedule_gap_samples(t_aureonoise* x)
 #endif
 
   const double U = std::max(1.0e-12, x->rng.uni01());
-  const double gap_sec = -std::log(U) / lambda;
+  double gap_sec = -std::log(U) / lambda;
+  const double base_rate = aureo::clamp(x->p_rate, 0.0, 50.0);
+  const double cap_sec = (base_rate > 1e-6) ? std::min(30.0, 4.0 / base_rate) : 0.25;
+  gap_sec = std::min(gap_sec, cap_sec);
   return static_cast<int>(std::max(1.0, std::round(gap_sec * x->sr)));
 }
 
@@ -205,6 +212,10 @@ void aureonoise_clear(t_aureonoise* x)
 void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long, long)
 {
   x->sr = (sr > 0 ? sr : 44100.0);
+  for (auto& g : x->grains) g = {};
+  x->samples_to_next = static_cast<int>(std::max(1.0, x->sr * 0.1));
+  x->gap_elapsed = 0;
+  x->sample_counter = 0;
   x->pinna.width = x->p_width;
   x->pinna.itd_us = x->p_itd_us;
   x->pinna.ild_db = x->p_ild_db;
@@ -220,7 +231,6 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
 #if AUREO_THERMO_LATTICE
   x->lat_phase = 0.0;
 #endif
-  x->gap_elapsed = 0;
   x->prev_pan = 0.0;
   x->prev_itd = 0.0;
   x->prev_ild = 0.0;
