@@ -106,9 +106,18 @@ endif()
 include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-posttarget.cmake")
 
 # Install destino (cambia a piacere)
-if(NOT DEFINED MAX_PACKAGE_DIR)
-  set(MAX_PACKAGE_DIR "$ENV{HOME}/Documents/Max 9/Packages/MyDev/externals")
+if(NOT DEFINED MAX_PACKAGE_DIR OR MAX_PACKAGE_DIR STREQUAL "")
+  # Usa una cartella locale (all'interno dell'albero di build) come fallback sicuro
+  # per evitare percorsi assoluti radice come "/externals" quando $HOME non è
+  # definita (scenario tipico nei container o in CI).
+  set(MAX_PACKAGE_DIR "${CMAKE_BINARY_DIR}/externals")
 endif()
+
+# Garantisce che il percorso di installazione esista prima delle fasi di copia
+# eseguite dagli script del Max SDK. Senza questa directory CMake fallisce nel
+# generare file temporanei (es. Info.plist) quando tenta di scrivere sotto
+# ${MAX_PACKAGE_DIR}.
+file(MAKE_DIRECTORY "${MAX_PACKAGE_DIR}")
 
 install(TARGETS ${C74_TARGET}
   BUNDLE  DESTINATION "${MAX_PACKAGE_DIR}"
