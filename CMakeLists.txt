@@ -37,24 +37,38 @@ endif()
 # Script del Max SDK: devono essere inclusi PRIMA di creare il target
 include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-pretarget.cmake")
 
-# Sorgenti principali suddivisi per responsabilità
-set(SRC
-  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise~/aureonoise_tilde.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_attributes.cpp"
+# Core condiviso
+add_library(aureo_core INTERFACE)
+target_include_directories(aureo_core INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/source")
+target_compile_options(aureo_core INTERFACE
+  -O3
+  -Ofast
+  -ffast-math
+  -fno-math-errno
+  -funroll-loops
+  -fstrict-aliasing
+  -fvisibility=hidden
 )
 
 # Target modulo bundle .mxo: il nome DEVE essere ${C74_TARGET}
-add_library(${C74_TARGET} MODULE ${SRC})
+add_library(${C74_TARGET} MODULE
+  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise~/aureonoise_tilde.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_attributes.cpp"
+)
 target_include_directories(${C74_TARGET} PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/source"
   "${CMAKE_CURRENT_LIST_DIR}/source/aureo_core"
   "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise~"
 )
 set_target_properties(${C74_TARGET} PROPERTIES
+  PREFIX ""
+  SUFFIX ".mxo"
   BUNDLE TRUE
   BUNDLE_EXTENSION "mxo"
   OUTPUT_NAME "${C74_EXTERNAL_NAME}"   # => aureonoise~
 )
+target_link_libraries(${C74_TARGET} PRIVATE aureo_core)
+target_link_options(${C74_TARGET} PRIVATE "-Wl,-undefined,dynamic_lookup")
 
 # Include dal Max SDK
 if(DEFINED C74_INCLUDES)
@@ -63,11 +77,7 @@ endif()
 
 # Flag clang (Apple Silicon) "spinti"
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  target_compile_options(${C74_TARGET} PRIVATE
-    -O3
-    -ffast-math -fno-math-errno -fno-trapping-math
-    -fstrict-aliasing -funroll-loops
-  )
+  target_compile_options(${C74_TARGET} PRIVATE -fno-trapping-math)
   if(AUREONOISE_NATIVE)
     # In alternativa: -mcpu=native (richiede Xcode recente)
     target_compile_options(${C74_TARGET} PRIVATE -mcpu=apple-m1 -mtune=apple-m1)
