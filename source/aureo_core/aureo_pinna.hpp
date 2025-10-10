@@ -19,7 +19,7 @@ struct Biquad {
     if (sr <= 0.0) sr = 44100.0;
     const double nyFactor = 0.49 * sr;
     const double clampedF0 = clamp(f0, minHz, nyFactor);
-    const double normQ = std::max(0.001, q);
+    const double normQ = std::max(0.1, q);
     const double omega = 2.0 * kPi * (clampedF0 / sr);
     const double cosw = std::cos(omega);
     const double alpha = std::sin(omega) / (2.0 * normQ);

@@ -4,6 +4,7 @@ extern "C" {
 #include "ext.h"
 #include "ext_obex.h"
 #include "z_dsp.h"
+#include "ext_systhread.h"
 }
 
 #include <array>
@@ -107,11 +108,17 @@ struct t_aureonoise {
   aureo::OU ou_rate;
   aureo::Lattice lat;
   double lat_phase = 0.0;
+  t_systhread_mutex lat_mu = nullptr;
+  double lat_last_v = 0.0;
 #if AUREO_BURST_HAWKES
   aureo::Hawkes hawkes;
 #endif
 #endif
 };
+
+#if AUREO_THERMO_LATTICE
+void aureonoise_lattice_safe_resize(t_aureonoise* x, int X, int Y, int Z);
+#endif
 
 inline void aureonoise_update_pinna_state(t_aureonoise* x)
 {

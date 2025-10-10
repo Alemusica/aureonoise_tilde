@@ -453,7 +453,9 @@ t_max_err set_lat_eps(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_eps = atom_getfloat(av);
+    if (x->lat_mu) systhread_mutex_lock(x->lat_mu);
     x->lat.eps = x->p_lat_eps;
+    if (x->lat_mu) systhread_mutex_unlock(x->lat_mu);
   }
   return MAX_ERR_NONE;
 }
@@ -462,7 +464,9 @@ t_max_err set_lat_gamma(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_gamma = atom_getfloat(av);
+    if (x->lat_mu) systhread_mutex_lock(x->lat_mu);
     x->lat.gamma = x->p_lat_gamma;
+    if (x->lat_mu) systhread_mutex_unlock(x->lat_mu);
   }
   return MAX_ERR_NONE;
 }
@@ -471,7 +475,9 @@ t_max_err set_lat_sigma(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_sigma = atom_getfloat(av);
+    if (x->lat_mu) systhread_mutex_lock(x->lat_mu);
     x->lat.sigma = x->p_lat_sigma;
+    if (x->lat_mu) systhread_mutex_unlock(x->lat_mu);
   }
   return MAX_ERR_NONE;
 }
@@ -480,7 +486,10 @@ t_max_err set_lat_x(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_x = std::max<long>(2, atom_getlong(av));
-    x->lat.init(static_cast<int>(x->p_lat_x), static_cast<int>(x->p_lat_y), static_cast<int>(x->p_lat_z));
+    aureonoise_lattice_safe_resize(x,
+                                   static_cast<int>(x->p_lat_x),
+                                   static_cast<int>(x->p_lat_y),
+                                   static_cast<int>(x->p_lat_z));
   }
   return MAX_ERR_NONE;
 }
@@ -489,7 +498,10 @@ t_max_err set_lat_y(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_y = std::max<long>(2, atom_getlong(av));
-    x->lat.init(static_cast<int>(x->p_lat_x), static_cast<int>(x->p_lat_y), static_cast<int>(x->p_lat_z));
+    aureonoise_lattice_safe_resize(x,
+                                   static_cast<int>(x->p_lat_x),
+                                   static_cast<int>(x->p_lat_y),
+                                   static_cast<int>(x->p_lat_z));
   }
   return MAX_ERR_NONE;
 }
@@ -498,7 +510,10 @@ t_max_err set_lat_z(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) {
     x->p_lat_z = std::max<long>(1, atom_getlong(av));
-    x->lat.init(static_cast<int>(x->p_lat_x), static_cast<int>(x->p_lat_y), static_cast<int>(x->p_lat_z));
+    aureonoise_lattice_safe_resize(x,
+                                   static_cast<int>(x->p_lat_x),
+                                   static_cast<int>(x->p_lat_y),
+                                   static_cast<int>(x->p_lat_z));
   }
   return MAX_ERR_NONE;
 }
