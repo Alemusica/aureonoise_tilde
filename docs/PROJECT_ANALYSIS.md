@@ -25,7 +25,7 @@ Durante il perform 64-bit il codice:
 
 ## Parametri utente
 
-Gli attributi espongono un set ricco di controlli: densità di eventi (`rate`), durata base e varianza φ (`baselen_ms`, `len_phi`), spazializzazione (`width`, `itd_us`, `ild_db`, `pinna_on`, `pinna_depth`), carattere timbrico (`color`, `color_amt`, `vhs_wow`, `vhs_flutter`, `glitch_mix`, `srcrush_amt`, `bitcrush_amt`), seed, e – se compilato con `AUREO_THERMO_LATTICE` – parametri termodinamici/lattice per modulazioni complesse inclusi `thermo`, `lattice`, `burst`, `T`, `lat_rate`, `lat_eps`, `lat_gamma`, `lat_sigma`, `lat_x/y/z`.【F:source/aureonoise_attributes.cpp†L37-L196】
+Gli attributi espongono un set ricco di controlli: densità di eventi (`rate`, ora estesa fino a 120 Hz), durata base e varianza φ (`baselen_ms`, `len_phi`, con durata base riducibile a 1 ms), spazializzazione (`width`, `itd_us`, `ild_db`, `pinna_on`, `pinna_depth`), carattere timbrico (`color`, `color_amt`, `vhs_wow`, `vhs_flutter`, `glitch_mix`, `srcrush_amt`, `bitcrush_amt`), seed, e – se compilato con `AUREO_THERMO_LATTICE` – parametri termodinamici/lattice per modulazioni complesse inclusi `thermo`, `lattice`, `burst`, `T`, `lat_rate`, `lat_eps`, `lat_gamma`, `lat_sigma`, `lat_x/y/z`.【F:source/aureonoise_attributes.cpp†L37-L196】
 
 ## Dipendenze esterne
 
@@ -42,5 +42,6 @@ L'inclusione di `max-pretarget.cmake`/`max-posttarget.cmake` implica una dipende
 
 - Prima di costruire il progetto assicurarsi che `MAX_SDK_PATH` punti alla root del Max SDK e che l'architettura target corrisponda alla piattaforma finale.
 - Usare l'attributo `clear` in Max per resettare rapidamente lo stato (ring buffer, grani, modulazioni) durante il debugging di preset complessi.【F:source/aureonoise~/aureonoise_tilde.cpp†L167-L182】
-- Per analizzare il comportamento stocastico dei grani può essere utile loggare `samples_to_next`, i valori delle sequenze Weyl (`w_phi`, `w_s2`, `w_pl`) e l'output del lattice termico quando `AUREO_THERMO_LATTICE` è attivo.
+- Il messaggio Max `report` invia sull'outlet di destra un log strutturato di ogni grano (timestamp, ampiezza, pan, valori Weyl/RNG, stato lattice/burst) con statistiche di densità per verificare l'effettiva stochasticità del motore aureo.【F:source/aureonoise~/aureonoise_tilde.cpp†L240-L325】【F:source/aureonoise~/aureonoise_tilde.cpp†L333-L373】
+- Per analizzare manualmente il comportamento stocastico dei grani si possono ancora osservare `samples_to_next`, i valori delle sequenze Weyl (`w_phi`, `w_s2`, `w_pl`) e l'output del lattice termico quando `AUREO_THERMO_LATTICE` è attivo.
 

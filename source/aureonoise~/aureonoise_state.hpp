@@ -8,6 +8,7 @@ extern "C" {
 }
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 
 #include "aureo_core/aureo_binaural.hpp"
@@ -23,6 +24,29 @@ extern "C" {
 
 struct t_aureonoise {
   t_pxobject ob;
+
+  struct GrainReport {
+    uint64_t index = 0;
+    double   timestamp_sec = 0.0;
+    double   gap_samples = 0.0;
+    double   dur_samples = 0.0;
+    double   amp = 0.0;
+    double   pan = 0.0;
+    double   itd_samples = 0.0;
+    double   ild_db = 0.0;
+    double   phi_u = 0.0;
+    double   s2_u = 0.0;
+    double   pl_u = 0.0;
+    double   rng4 = 0.0;
+    double   rng5 = 0.0;
+    double   rng6 = 0.0;
+    double   lattice_u = 0.5;
+    double   lattice_v = 0.0;
+    double   hawkes_lambda = 0.0;
+    bool     thermo_on = false;
+    bool     lattice_on = false;
+    bool     burst_on = false;
+  };
 
   double p_rate = 8.0;
   double p_baselen_ms = 120.0;
@@ -99,6 +123,15 @@ struct t_aureonoise {
   int primes_count = 0;
   std::array<aureo::Grain, aureo::kMaxGrains> grains{};
 
+  void* out_info = nullptr;
+  t_systhread_mutex report_mu = nullptr;
+  static constexpr size_t kReportCapacity = 512;
+  std::array<GrainReport, kReportCapacity> report_log{};
+  size_t report_head = 0;
+  size_t report_count = 0;
+  std::atomic<uint64_t> report_total{0};
+  std::atomic<uint64_t> report_dropped{0};
+
   double prev_pan = 0.0;
   double prev_itd = 0.0;
   double prev_ild = 0.0;
@@ -160,6 +193,7 @@ inline void aureonoise_mark_pinna_dirty(t_aureonoise* x)
 void aureonoise_setup_attributes(t_class* c);
 int  pick_prime_in_range(t_aureonoise* x, int lo, int hi, double u);
 void make_small_primes(t_aureonoise* x);
+void aureonoise_report(t_aureonoise* x);
 
 t_max_err set_rate(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_baselen(t_aureonoise* x, void*, long ac, t_atom* av);

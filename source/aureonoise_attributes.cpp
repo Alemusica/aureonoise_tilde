@@ -41,11 +41,13 @@ void aureonoise_setup_attributes(t_class* c)
 {
   CLASS_ATTR_DOUBLE(c,  "rate",       0, t_aureonoise, p_rate);
   CLASS_ATTR_ACCESSORS(c, "rate", NULL, set_rate);
+  CLASS_ATTR_FILTER_CLIP(c, "rate", 0.0, aureo::kMaxEventRateHz);
   CLASS_ATTR_LABEL(c,  "rate",       0, "Densità eventi (Hz)");
   CLASS_ATTR_SAVE(c,   "rate",       0);
 
   CLASS_ATTR_DOUBLE(c,  "baselen_ms",0, t_aureonoise, p_baselen_ms);
   CLASS_ATTR_ACCESSORS(c, "baselen_ms", NULL, set_baselen);
+  CLASS_ATTR_FILTER_CLIP(c, "baselen_ms", aureo::kMinBaseLengthMs, 2000.0);
   CLASS_ATTR_LABEL(c,  "baselen_ms",0, "Durata base grano (ms)");
   CLASS_ATTR_SAVE(c,   "baselen_ms",0);
 
@@ -250,13 +252,13 @@ void aureonoise_setup_attributes(t_class* c)
 
 t_max_err set_rate(t_aureonoise* x, void*, long ac, t_atom* av)
 {
-  if (ac && av) x->p_rate = aureo::clamp(atom_getfloat(av), 0.0, 50.0);
+  if (ac && av) x->p_rate = aureo::clamp(atom_getfloat(av), 0.0, aureo::kMaxEventRateHz);
   return MAX_ERR_NONE;
 }
 
 t_max_err set_baselen(t_aureonoise* x, void*, long ac, t_atom* av)
 {
-  if (ac && av) x->p_baselen_ms = aureo::clamp(atom_getfloat(av), 5.0, 2000.0);
+  if (ac && av) x->p_baselen_ms = aureo::clamp(atom_getfloat(av), aureo::kMinBaseLengthMs, 2000.0);
   return MAX_ERR_NONE;
 }
 
