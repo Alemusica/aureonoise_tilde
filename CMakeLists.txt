@@ -34,6 +34,19 @@ if(NOT DEFINED MAX_SDK_PATH)
   set(MAX_SDK_PATH "$ENV{HOME}/max-sdk")
 endif()
 
+# Percorso di installazione dell'external. Alcuni script del Max SDK lo
+# utilizzano durante la fase di configurazione, quindi impostiamo un fallback
+# *prima* di includerli in modo da evitare percorsi vuoti come "/externals"
+# quando la variabile non è definita nell'ambiente (scenario comune nei
+# container CI).
+if(NOT DEFINED MAX_PACKAGE_DIR OR MAX_PACKAGE_DIR STREQUAL "")
+  # Usa una cartella locale (all'interno dell'albero di build) come fallback
+  # sicuro. Viene creata esplicitamente per permettere agli script del Max SDK
+  # di scrivere i file temporanei (Info.plist ecc.) senza errori.
+  set(MAX_PACKAGE_DIR "${CMAKE_BINARY_DIR}/externals")
+endif()
+file(MAKE_DIRECTORY "${MAX_PACKAGE_DIR}")
+
 # Script del Max SDK: devono essere inclusi PRIMA di creare il target
 include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-pretarget.cmake")
 
@@ -106,19 +119,6 @@ endif()
 include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-posttarget.cmake")
 
 # Install destino (cambia a piacere)
-if(NOT DEFINED MAX_PACKAGE_DIR OR MAX_PACKAGE_DIR STREQUAL "")
-  # Usa una cartella locale (all'interno dell'albero di build) come fallback sicuro
-  # per evitare percorsi assoluti radice come "/externals" quando $HOME non è
-  # definita (scenario tipico nei container o in CI).
-  set(MAX_PACKAGE_DIR "${CMAKE_BINARY_DIR}/externals")
-endif()
-
-# Garantisce che il percorso di installazione esista prima delle fasi di copia
-# eseguite dagli script del Max SDK. Senza questa directory CMake fallisce nel
-# generare file temporanei (es. Info.plist) quando tenta di scrivere sotto
-# ${MAX_PACKAGE_DIR}.
-file(MAKE_DIRECTORY "${MAX_PACKAGE_DIR}")
-
 install(TARGETS ${C74_TARGET}
   BUNDLE  DESTINATION "${MAX_PACKAGE_DIR}"
   LIBRARY DESTINATION "${MAX_PACKAGE_DIR}")
