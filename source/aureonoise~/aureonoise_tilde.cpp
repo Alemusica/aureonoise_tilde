@@ -14,6 +14,56 @@
 #include <xmmintrin.h>
 #endif
 
+static inline double aureonoise_allpass(double x, double a, double& z)
+{
+  const double y = -a * x + z;
+  z = x + a * y;
+  return y;
+}
+
+static inline double aureonoise_shadow_lp(double x, double a, double& z)
+{
+  const double y = (1.0 - a) * x + a * z;
+  z = y;
+  return y;
+}
+
+static bool aureonoise_poisson_enforce(const t_aureonoise* x, double& pan, double minPan, double minSamples)
+{
+  pan = aureo::clamp(pan, -1.0, 1.0);
+  minPan = std::max(0.0, minPan);
+  minSamples = std::max(0.0, minSamples);
+  if (minPan <= 0.0 || x->grains.empty()) return true;
+
+  double guard = minPan;
+  const double relax = 0.82;
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    bool conflict = false;
+    for (const auto& g : x->grains) {
+      if (!g.on) continue;
+      if (minSamples > 0.0 && static_cast<double>(g.age) > minSamples) continue;
+      const double dist = std::abs(pan - g.pan);
+      if (dist < guard) {
+        conflict = true;
+        const double sign = (pan >= g.pan) ? 1.0 : -1.0;
+        pan = aureo::clamp(g.pan + sign * guard, -1.0, 1.0);
+        break;
+      }
+    }
+    if (!conflict) return true;
+    guard *= relax;
+  }
+
+  for (const auto& g : x->grains) {
+    if (!g.on) continue;
+    if (minSamples > 0.0 && static_cast<double>(g.age) > minSamples) continue;
+    if (std::abs(pan - g.pan) < 0.5 * minPan) return false;
+  }
+
+  pan = aureo::clamp(pan, -1.0, 1.0);
+  return true;
+}
+
 void* aureonoise_new(t_symbol* s, long argc, t_atom* argv);
 void  aureonoise_free(t_aureonoise* x);
 void  aureonoise_assist(t_aureonoise* x, void* b, long m, long a, char* s);
@@ -333,6 +383,10 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
   const double lat_inc = aureo::clamp(x->p_lat_rate, 1.0, 2000.0) / x->sr;
 #endif
   const double itd_scale = x->p_itd_us * 1.0e-6 * x->sr;
+  const double min_pan_norm = aureo::clamp(x->p_spat_min_deg, 0.0, 180.0) / 90.0;
+  const double min_time_samples = aureo::clamp(x->p_spat_min_ms, 0.0, 500.0) * 0.001 * x->sr;
+  const double ipd_amt_global = aureo::clamp01(x->p_spat_ipd);
+  const double shadow_amt_global = aureo::clamp01(x->p_spat_shadow);
 
   for (long n = 0; n < sampleframes; ++n) {
     ++x->gap_elapsed;
@@ -374,24 +428,24 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
 
     double nz = x->noise.process(x->rng);
 #ifdef __aarch64__
-    nz += 1.0e-20;
+    nz += 1.0e-18 * x->rng.uniPM1();
 #endif
     nz = aureo::soft_tanh(nz * 1.2);
     x->ring.data[wi] = nz;
 
     if (--x->samples_to_next <= 0) {
       const int gi = find_free_grain(x);
+      bool spawned = false;
       if (gi >= 0) {
         auto& g = x->grains[gi];
         g = {};
-        g.on = true;
-        g.age = 0;
 
         const double u1 = x->w_phi.next();
         const double u2 = x->w_s2.next();
         const double u3 = x->w_pl.next();
         const double u4 = x->rng.uni01();
         const double u5 = x->rng.uni01();
+        const double u6 = x->rng.uni01();
 
         const double gap_samples = static_cast<double>(x->gap_elapsed);
         const double prev_dur = std::max(1.0, x->last_dur_samples);
@@ -423,59 +477,94 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
         const double oui = 0.0;
 #endif
 
-        g.dur = map_len_samples(x, u1);
-        g.amp = aureo::kAmpNorm * std::pow(std::max(1e-9, u2), 0.35) * aureo::map_phi_range(1.0 / aureo::kPhi, aureo::kPhi, lat_u) * oua;
+        const double amp_shape = std::pow(std::max(1e-9, u2), 0.35);
+        const double amp_lat = aureo::map_phi_range(1.0 / aureo::kPhi, aureo::kPhi, lat_u);
+        const double amp = aureo::kAmpNorm * amp_shape * amp_lat * oua;
 
         double pan = 2.0 * u3 - 1.0;
 #if AUREO_THERMO_LATTICE
         pan += 0.25 * (2.0 * lat_u - 1.0) + 0.35 * oup;
 #endif
         pan = aureo::clamp((1.0 - hemi) * pan - hemi * x->prev_pan, -1.0, 1.0);
-        auto gains = x->pinna.gains(pan);
-        g.panL = gains.first;
-        g.panR = gains.second;
 
-        double itd = aureo::map_itd_samples_frac(x->sr, x->p_itd_us, u2);
+        bool ok = aureonoise_poisson_enforce(x, pan, min_pan_norm, min_time_samples);
+        if (ok) {
+          g.dur = map_len_samples(x, u1);
+          g.amp = amp;
+          g.pan = pan;
+
+          auto gains = x->pinna.gains(pan);
+          g.panL = gains.first;
+          g.panR = gains.second;
+
+          double itd = aureo::map_itd_samples_frac(x->sr, x->p_itd_us, u2);
 #if AUREO_THERMO_LATTICE
-        itd += ((2.0 * lat_u - 1.0) * 0.33 + 0.33 * oui) * (x->p_itd_us * 1.0e-6 * x->sr);
+          itd += ((2.0 * lat_u - 1.0) * 0.33 + 0.33 * oui) * (x->p_itd_us * 1.0e-6 * x->sr);
 #endif
-        g.itd = (1.0 - hemi) * itd - hemi * x->prev_itd;
+          g.itd = (1.0 - hemi) * itd - hemi * x->prev_itd;
 
-        const double ild_max = aureo::clamp(x->p_ild_db, 0.0, 24.0);
-        const double ild_sign = 2.0 * u5 - 1.0;
-        const double ild_mag = aureo::map_phi_range(0.0, ild_max, std::abs(ild_sign));
-        double ild_db = ild_sign * ild_mag;
-        ild_db = aureo::clamp((1.0 - hemi) * ild_db - hemi * x->prev_ild, -ild_max, ild_max);
-        g.gL = aureo::db_to_lin(ild_db);
-        g.gR = aureo::db_to_lin(-ild_db);
+          const double ild_max = aureo::clamp(x->p_ild_db, 0.0, 24.0);
+          const double ild_sign = 2.0 * u5 - 1.0;
+          const double ild_mag = aureo::map_phi_range(0.0, ild_max, std::abs(ild_sign));
+          double ild_db = ild_sign * ild_mag;
+          ild_db = aureo::clamp((1.0 - hemi) * ild_db - hemi * x->prev_ild, -ild_max, ild_max);
+          g.gL = aureo::db_to_lin(ild_db);
+          g.gR = aureo::db_to_lin(-ild_db);
 
-        g.kind = aureo::choose_kind(x->p_glitch_mix, u4);
+          double ipd_coeff = 0.0;
+          if (ipd_amt_global > 1.0e-6) {
+            const double ipd_shape = std::abs(2.0 * u6 - 1.0);
+            const double ipd_base = 0.18 + 0.55 * ipd_amt_global;
+            const double ipd_spread = 0.25 * ipd_amt_global;
+            ipd_coeff = aureo::clamp(ipd_base + ipd_spread * (ipd_shape - 0.5), 0.0, 0.95);
+          }
+          g.ipd_coeff = ipd_coeff;
 
-        int srN = aureo::map_sr_hold_base(x->p_srcrush_amt, u1);
+          const double shadow_factor = shadow_amt_global * std::abs(pan);
+          if (shadow_factor > 1.0e-6) {
+            const double fc_min = 800.0;
+            const double fc_max = std::max(fc_min, std::min(8000.0, 0.45 * x->sr));
+            const double fc = aureo::map_phi_range(fc_min, fc_max, 1.0 - shadow_factor);
+            const double alpha = std::exp(-2.0 * aureo::kPi * fc / x->sr);
+            g.shadow_a = aureo::clamp(alpha, 0.0, 0.9999);
+            g.shadow_left = (pan > 0.0);
+            g.shadow_right = (pan < 0.0);
+          }
+
+          g.kind = aureo::choose_kind(x->p_glitch_mix, u4);
+
+          int srN = aureo::map_sr_hold_base(x->p_srcrush_amt, u1);
 #if AUREO_SR_PRIME_SNAP
-        g.sr_holdN = pick_prime_in_range(x, std::max(1, srN - 7), srN + 7, u2);
+          g.sr_holdN = pick_prime_in_range(x, std::max(1, srN - 7), srN + 7, u2);
 #else
-        g.sr_holdN = srN;
+          g.sr_holdN = srN;
 #endif
-        g.sr_holdCnt = g.sr_holdN;
-        g.q_levels = (1 << (aureo::map_bits(x->p_bitcrush_amt) - 1)) - 1;
+          g.sr_holdCnt = g.sr_holdN;
+          g.q_levels = (1 << (aureo::map_bits(x->p_bitcrush_amt) - 1)) - 1;
 
-        const auto envShape = x->field.make_envelope(x->p_env_attack,
-                                                     x->p_env_decay,
-                                                     x->p_env_sustain,
-                                                     x->p_env_release,
-                                                     gap_samples,
-                                                     static_cast<double>(g.dur),
-                                                     std::abs(pan));
-        g.env = envShape;
-        x->prev_pan = pan;
-        x->prev_itd = g.itd;
-        x->prev_ild = ild_db;
-        x->last_gap_samples = gap_samples;
-        x->last_dur_samples = static_cast<double>(g.dur);
-        x->gap_elapsed = 0;
+          const auto envShape = x->field.make_envelope(x->p_env_attack,
+                                                       x->p_env_decay,
+                                                       x->p_env_sustain,
+                                                       x->p_env_release,
+                                                       gap_samples,
+                                                       static_cast<double>(g.dur),
+                                                       std::abs(pan));
+          g.env = envShape;
+          g.on = true;
+          g.age = 0;
+          x->prev_pan = pan;
+          x->prev_itd = g.itd;
+          x->prev_ild = ild_db;
+          x->last_gap_samples = gap_samples;
+          x->last_dur_samples = static_cast<double>(g.dur);
+          x->gap_elapsed = 0;
+          spawned = true;
+        }
       }
       x->samples_to_next = schedule_gap_samples(x);
+      if (!spawned && gi >= 0) {
+        x->grains[gi].on = false;
+      }
     }
 
     double yL = 0.0, yR = 0.0;
@@ -515,6 +604,20 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
         if ((g.age & 7) == 0) { sL *= 0.2; sR *= 0.2; }
       }
 
+      if (g.ipd_coeff > 1.0e-6) {
+        sL = aureonoise_allpass(sL, g.ipd_coeff, g.ipd_zL);
+        sR = aureonoise_allpass(sR, -g.ipd_coeff, g.ipd_zR);
+      }
+
+      if (g.shadow_a > 1.0e-6) {
+        if (g.shadow_left) {
+          sL = aureonoise_shadow_lp(sL, g.shadow_a, g.shadow_zL);
+        }
+        if (g.shadow_right) {
+          sR = aureonoise_shadow_lp(sR, g.shadow_a, g.shadow_zR);
+        }
+      }
+
       yL += g.amp * env * sL;
       yR += g.amp * env * sR;
       ++g.age;
@@ -523,14 +626,15 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
     if (pinna_active) {
       const double dryL = yL;
       const double dryR = yR;
-      const double wet = pinna_mix;
       const double depthAmt = pinna_depth_amt;
-      const double wetL = x->pinna_notchL.proc(dryL);
-      const double wetR = x->pinna_notchR.proc(dryR);
-      const double w = wet * depthAmt;
-      const double dry_w = 1.0 - w;
-      yL = dry_w * dryL + w * wetL;
-      yR = dry_w * dryR + w * wetR;
+      double wetL = x->pinna_notchL.proc(dryL);
+      double wetR = x->pinna_notchR.proc(dryR);
+      wetL = dryL + depthAmt * (wetL - dryL);
+      wetR = dryR + depthAmt * (wetR - dryR);
+      const double wet = pinna_mix;
+      const double dry_w = 1.0 - wet;
+      yL = dry_w * dryL + wet * wetL;
+      yR = dry_w * dryR + wet * wetR;
     }
 
     yL = std::tanh(yL * aureo::kOutDrive) / aureo::kOutDrive;

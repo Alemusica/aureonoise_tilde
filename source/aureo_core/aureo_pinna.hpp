@@ -17,7 +17,7 @@ struct Biquad {
   void setNotch(double sr, double f0, double q, double minHz)
   {
     if (sr <= 0.0) sr = 44100.0;
-    const double nyFactor = 0.49 * sr;
+    const double nyFactor = 0.45 * sr;
     const double clampedF0 = clamp(f0, minHz, nyFactor);
     const double normQ = std::max(0.1, q);
     const double omega = 2.0 * kPi * (clampedF0 / sr);

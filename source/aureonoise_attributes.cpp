@@ -71,6 +71,30 @@ void aureonoise_setup_attributes(t_class* c)
   CLASS_ATTR_LABEL(c,  "ild_db",    0, "ILD ±dB max");
   CLASS_ATTR_SAVE(c,   "ild_db",    0);
 
+  CLASS_ATTR_DOUBLE(c, "spat_min_deg", 0, t_aureonoise, p_spat_min_deg);
+  CLASS_ATTR_ACCESSORS(c, "spat_min_deg", NULL, set_spat_min_deg);
+  CLASS_ATTR_FILTER_CLIP(c, "spat_min_deg", 0.0, 180.0);
+  CLASS_ATTR_LABEL(c, "spat_min_deg", 0, "Separazione minima angolo (°)");
+  CLASS_ATTR_SAVE(c, "spat_min_deg", 0);
+
+  CLASS_ATTR_DOUBLE(c, "spat_min_ms", 0, t_aureonoise, p_spat_min_ms);
+  CLASS_ATTR_ACCESSORS(c, "spat_min_ms", NULL, set_spat_min_ms);
+  CLASS_ATTR_FILTER_CLIP(c, "spat_min_ms", 0.0, 500.0);
+  CLASS_ATTR_LABEL(c, "spat_min_ms", 0, "Separazione minima temporale (ms)");
+  CLASS_ATTR_SAVE(c, "spat_min_ms", 0);
+
+  CLASS_ATTR_DOUBLE(c, "spat_ipd", 0, t_aureonoise, p_spat_ipd);
+  CLASS_ATTR_ACCESSORS(c, "spat_ipd", NULL, set_spat_ipd);
+  CLASS_ATTR_FILTER_CLIP(c, "spat_ipd", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c, "spat_ipd", 0, "Decorrelazione IPD (0..1)");
+  CLASS_ATTR_SAVE(c, "spat_ipd", 0);
+
+  CLASS_ATTR_DOUBLE(c, "spat_shadow", 0, t_aureonoise, p_spat_shadow);
+  CLASS_ATTR_ACCESSORS(c, "spat_shadow", NULL, set_spat_shadow);
+  CLASS_ATTR_FILTER_CLIP(c, "spat_shadow", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c, "spat_shadow", 0, "Head-shadow controlaterale (0..1)");
+  CLASS_ATTR_SAVE(c, "spat_shadow", 0);
+
   CLASS_ATTR_DOUBLE(c,  "env_attack", 0, t_aureonoise, p_env_attack);
   CLASS_ATTR_ACCESSORS(c, "env_attack", NULL, set_env_attack);
   CLASS_ATTR_FILTER_CLIP(c, "env_attack", 0.01, 4.0);
@@ -268,6 +292,30 @@ t_max_err set_ild(t_aureonoise* x, void*, long ac, t_atom* av)
     x->p_ild_db = aureo::clamp(atom_getfloat(av), 0.0, 24.0);
     x->pinna.ild_db = x->p_ild_db;
   }
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_spat_min_deg(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_spat_min_deg = aureo::clamp(atom_getfloat(av), 0.0, 180.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_spat_min_ms(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_spat_min_ms = aureo::clamp(atom_getfloat(av), 0.0, 500.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_spat_ipd(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_spat_ipd = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_spat_shadow(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_spat_shadow = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
   return MAX_ERR_NONE;
 }
 
