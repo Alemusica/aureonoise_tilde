@@ -73,6 +73,29 @@ add_library(${C74_TARGET} MODULE
   "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise~/aureonoise_tilde.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_attributes.cpp"
 )
+add_library(kbeyond_tilde ALIAS ${C74_TARGET})
+if (NOT DEFINED MAX_SDK_ROOT)
+  if (DEFINED ENV{MAX_SDK_ROOT})
+    set(MAX_SDK_ROOT $ENV{MAX_SDK_ROOT})
+  else()
+    message(FATAL_ERROR "Set MAX_SDK_ROOT or pass -DMAX_SDK_ROOT")
+  endif()
+endif()
+
+if (EXISTS "${MAX_SDK_ROOT}/source/max-sdk-base/c74support/max-includes/ext.h")
+  set(C74SUPPORT "${MAX_SDK_ROOT}/source/max-sdk-base/c74support")
+elseif (EXISTS "${MAX_SDK_ROOT}/source/c74support/max-includes/ext.h")
+  set(C74SUPPORT "${MAX_SDK_ROOT}/source/c74support")
+elseif (EXISTS "${MAX_SDK_ROOT}/c74support/max-includes/ext.h")
+  set(C74SUPPORT "${MAX_SDK_ROOT}/c74support")
+else()
+  message(FATAL_ERROR "ext.h non trovato sotto ${MAX_SDK_ROOT}")
+endif()
+
+target_include_directories(kbeyond_tilde PRIVATE
+  "${C74SUPPORT}/max-includes"
+  "${C74SUPPORT}/msp-includes"
+)
 target_include_directories(${C74_TARGET} PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/source"
   "${CMAKE_CURRENT_LIST_DIR}/source/aureo_core"
