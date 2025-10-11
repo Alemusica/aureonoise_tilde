@@ -248,12 +248,13 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
   if (!x) return nullptr;
 
   dsp_setup(reinterpret_cast<t_pxobject*>(x), 0);
-  // In Max gli outlet vengono creati da destra verso sinistra: creiamo prima
-  // l'outlet informativo così rimane a destra, quindi il canale destro e infine
-  // il sinistro che deve risultare il primo (più a sinistra) sul box.
-  x->out_info = outlet_new(reinterpret_cast<t_object*>(x), NULL);
-  outlet_new(reinterpret_cast<t_object*>(x), "signal"); // canale destro
+  // In Max gli outlet audio vanno creati nell'ordine sinistra → destra perché
+  // l'array `outs` ricevuto dal perform rispetta quella disposizione a schermo.
+  // Creiamo quindi prima il canale sinistro, poi il destro e infine l'outlet
+  // informativo (non-signal) che deve apparire tutto a destra.
   outlet_new(reinterpret_cast<t_object*>(x), "signal"); // canale sinistro
+  outlet_new(reinterpret_cast<t_object*>(x), "signal"); // canale destro
+  x->out_info = outlet_new(reinterpret_cast<t_object*>(x), NULL);
 
   x->sr = sys_getsr();
   if (x->sr <= 0) x->sr = 44100.0;
