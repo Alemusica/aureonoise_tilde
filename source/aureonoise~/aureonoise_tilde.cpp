@@ -515,6 +515,7 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
 #endif
+  x->ob.z_disabled = 0;
   object_method(dsp64, gensym("dsp_add64"), x, reinterpret_cast<method>(aureonoise_perform64), 0, NULL);
 #if defined(__clang__)
 #pragma clang diagnostic pop
