@@ -247,10 +247,7 @@ inline void aureonoise_refresh_golden_params(t_aureonoise* x)
   if (rate_clamped <= 1.0e-6) {
     x->golden.rate = 0.0;
   } else {
-    const double rate_floor = 0.125;
-    const double range = std::max(aureo::kMaxEventRateHz - rate_floor, 1.0);
-    const double u = aureonoise_phi_curve(aureo::clamp01((rate_clamped - rate_floor) / range));
-    x->golden.rate = aureo::map_phi_range(rate_floor, aureo::kMaxEventRateHz, u);
+    x->golden.rate = rate_clamped;
   }
 
   x->golden.baselen_ms = aureonoise_phi_project_positive(x->p_baselen_ms,
