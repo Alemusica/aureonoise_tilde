@@ -48,7 +48,13 @@ endif()
 file(MAKE_DIRECTORY "${MAX_PACKAGE_DIR}")
 
 # Script del Max SDK: devono essere inclusi PRIMA di creare il target
-include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-pretarget.cmake")
+set(_max_sdk_pretarget "${MAX_SDK_PATH}/source/max-sdk-base/script/max-pretarget.cmake")
+if(NOT EXISTS "${_max_sdk_pretarget}")
+  message(FATAL_ERROR
+    "Max SDK pre-target script not found at ${_max_sdk_pretarget}. "
+    "Set MAX_SDK_PATH to the root of the extracted Max SDK (the folder that contains source/max-sdk-base).")
+endif()
+include("${_max_sdk_pretarget}")
 
 # Core condiviso
 add_library(aureo_core INTERFACE)
@@ -115,7 +121,13 @@ endif()
 
 # Post-target del Max SDK (link a MaxAPI/framework ecc.)
 # DEVE essere incluso DOPO la creazione del target con lo stesso nome di C74_TARGET.
-include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-posttarget.cmake")
+set(_max_sdk_posttarget "${MAX_SDK_PATH}/source/max-sdk-base/script/max-posttarget.cmake")
+if(NOT EXISTS "${_max_sdk_posttarget}")
+  message(FATAL_ERROR
+    "Max SDK post-target script not found at ${_max_sdk_posttarget}. "
+    "Set MAX_SDK_PATH to the root of the extracted Max SDK (the folder that contains source/max-sdk-base).")
+endif()
+include("${_max_sdk_posttarget}")
 
 # --- Firma automatica su macOS ---
 if(APPLE)
