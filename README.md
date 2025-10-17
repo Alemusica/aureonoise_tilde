@@ -39,6 +39,18 @@ Se necessario puoi impostare manualmente `MAX_SDK_ROOT` nello stesso modo (varia
 - Assicurati di lanciare Cycling '74 Max dopo l'installazione per verificare che l'external venga caricato senza errori.
 - La spazializzazione binaurale sintetica sfrutta ora un modello Woodworth/Gaussian crossfeed con report dettagliato degli azimuth, utile da consultare tramite il messaggio `report` di aureonoise~.
 
+## Inviluppo complesso "vellutato"
+
+L'inviluppo dei grani non è più un semplice ADSR statico: ogni grano evolve in un piano complesso con modulazioni lente e non ripetitive. Il modulo calcola un valore di ampiezza a partire dalla magnitudine del vettore complesso, garantendo un decadimento morbido (*vellutato*) ma sempre leggermente diverso. Gli attributi seguenti permettono di plasmare il comportamento stocastico senza introdurre ciclicità percepibili:
+
+- `env_complex_magvar` (0..1.5) controlla la varianza della magnitudine. Valori più alti rendono il decadimento più mobile.
+- `env_complex_phasevar` (0..1.5 rad) regola la diffusione della fase complessa. Incrementandolo aumenta la micro-rotazione tra campioni.
+- `env_complex_corr` (0..0.999) imposta la correlazione tra i campioni di rumore usati per la deriva. Valori vicini a 1 producono traiettorie molto levigate.
+- `env_complex_tau_ms` (1..2000 ms) definisce la costante di tempo del filtro che insegue il bersaglio ADSR. È espressa in millisecondi e permette di rallentare/accelerare la risposta.
+- `env_complex_bias` (0..1) miscela il target istantaneo con il livello di sustain, mantenendo una presenza vellutata anche su code lunghissime.
+
+Le impostazioni predefinite riproducono un decadimento naturale; piccole variazioni dei parametri consentono di ottenere texture differenti mantenendo la non-periodicità aureo.
+
 ## Modalità di stimolo
 
 L'attributo `mode` consente di scegliere tra la generazione **texture** classica e la nuova modalità **dichotic** pensata per paradigmi percettivi L/R estremamente lenti (0.1–0.2 Hz). In modalità dichotic:
