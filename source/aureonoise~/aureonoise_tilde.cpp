@@ -160,6 +160,8 @@ void aureonoise_reset_dichotic_state(t_aureonoise* x)
   ds.tone_inc = 0.0;
   ds.current_freq = 0.0;
   ds.noise_state = 0.0;
+  ds.match_freq_hz = 0.0;
+  ds.mismatch_freq_hz = 0.0;
   ds.match_probability = aureo::clamp01(x->p_dichotic_match_prob);
   ds.match_content = static_cast<t_aureonoise::DichoticContent>(clamp_content(x->p_dichotic_content_match));
   ds.mismatch_content = static_cast<t_aureonoise::DichoticContent>(clamp_content(x->p_dichotic_content_mismatch));
@@ -173,21 +175,46 @@ void aureonoise_reset_dichotic_state(t_aureonoise* x)
   const double burst_ms = aureo::clamp(x->p_dichotic_burst_ms, 50.0, 4000.0);
   ds.burst_total_samples = std::max(1.0, burst_ms * 0.001 * sr);
 
-  const double max_env_ms = std::max(5.0, 0.9 * burst_ms);
-  const double att_ms = aureo::clamp(x->p_dichotic_env_attack_ms, 5.0, max_env_ms);
-  const double rel_ms = aureo::clamp(x->p_dichotic_env_release_ms, 5.0, max_env_ms);
-  ds.attack_samples = std::max(1.0, att_ms * 0.001 * sr);
-  ds.release_samples = std::max(1.0, rel_ms * 0.001 * sr);
+  const double min_env_ms = 5.0;
+  const double max_env_ms = std::max(min_env_ms, 0.9 * burst_ms);
+  const double att_ms = aureo::clamp(x->p_dichotic_env_attack_ms, min_env_ms, max_env_ms);
+  double attack_ms_phi = aureo::quantize_phi(min_env_ms, max_env_ms, att_ms);
+  double release_ms_phi = attack_ms_phi * aureo::kPhi;
+  if (release_ms_phi > max_env_ms) {
+    release_ms_phi = max_env_ms;
+    attack_ms_phi = std::max(min_env_ms, release_ms_phi / aureo::kPhi);
+    attack_ms_phi = aureo::quantize_phi(min_env_ms, max_env_ms, attack_ms_phi);
+  }
+  const double max_sum_ms = std::max(2.0 * min_env_ms, 0.98 * burst_ms);
+  double env_sum_ms = attack_ms_phi + release_ms_phi;
+  if (env_sum_ms > max_sum_ms) {
+    const double scale = max_sum_ms / env_sum_ms;
+    attack_ms_phi = std::max(min_env_ms, attack_ms_phi * scale);
+    release_ms_phi = std::max(min_env_ms, release_ms_phi * scale);
+    env_sum_ms = attack_ms_phi + release_ms_phi;
+  }
+  ds.attack_samples = std::max(1.0, attack_ms_phi * 0.001 * sr);
+  ds.release_samples = std::max(1.0, release_ms_phi * 0.001 * sr);
   const double sum_env = ds.attack_samples + ds.release_samples;
   if (sum_env >= ds.burst_total_samples) {
     const double scale = (ds.burst_total_samples - 1.0) / std::max(1.0, sum_env);
     if (scale > 0.0) {
       ds.attack_samples = std::max(1.0, ds.attack_samples * scale);
       ds.release_samples = std::max(1.0, ds.release_samples * scale);
-    } else {
-      ds.attack_samples = 0.5 * ds.burst_total_samples;
-      ds.release_samples = 0.5 * ds.burst_total_samples;
     }
+  }
+
+  const double freq_min = 50.0;
+  const double freq_max = 8000.0;
+  ds.match_freq_hz = aureo::quantize_phi(freq_min, freq_max, x->p_dichotic_tone_match_hz);
+  ds.mismatch_freq_hz = aureo::quantize_phi(freq_min, freq_max, x->p_dichotic_tone_mismatch_hz);
+  if (std::abs(ds.mismatch_freq_hz - ds.match_freq_hz) < 1.0) {
+    const double candidate_up = ds.match_freq_hz * aureo::kPhi;
+    const double candidate_down = ds.match_freq_hz / aureo::kPhi;
+    double fallback = ds.match_freq_hz;
+    if (candidate_up <= freq_max) fallback = candidate_up;
+    else if (candidate_down >= freq_min) fallback = candidate_down;
+    ds.mismatch_freq_hz = aureo::quantize_phi(freq_min, freq_max, fallback);
   }
 
   ds.samples_until_next = ds.interval_samples;
@@ -241,7 +268,7 @@ static void aureonoise_start_dichotic_burst(t_aureonoise* x)
   ds.match = (u <= ds.match_probability);
   ds.current_content = ds.match ? ds.match_content : ds.mismatch_content;
   const bool is_tone = (ds.current_content == t_aureonoise::DichoticContent::Tone);
-  const double raw_freq = ds.match ? x->p_dichotic_tone_match_hz : x->p_dichotic_tone_mismatch_hz;
+  const double raw_freq = ds.match ? ds.match_freq_hz : ds.mismatch_freq_hz;
   ds.current_freq = is_tone ? aureo::clamp(raw_freq, 50.0, 8000.0) : 0.0;
   ds.tone_phase = 0.0;
   ds.tone_inc = is_tone ? (2.0 * aureo::kPi * ds.current_freq / sr) : 0.0;

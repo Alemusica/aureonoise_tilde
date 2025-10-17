@@ -22,6 +22,16 @@ inline double map_phi_range(double vmin, double vmax, double u)
   return vmin * std::pow(kPhi, K * u);
 }
 
+inline double quantize_phi(double vmin, double vmax, double value)
+{
+  vmin = std::max(1.0e-12, vmin);
+  vmax = std::max(vmin * 1.000001, vmax);
+  value = clamp(value, vmin, vmax);
+  const double exponent = std::round(std::log(value / vmin) / std::log(kPhi));
+  const double quantized = vmin * std::pow(kPhi, exponent);
+  return clamp(quantized, vmin, vmax);
+}
+
 inline int map_sr_hold_base(double amt, double u)
 {
   amt = clamp01(amt);

@@ -168,6 +168,8 @@ struct t_aureonoise {
     double         tone_phase = 0.0;
     double         tone_inc = 0.0;
     double         current_freq = 0.0;
+    double         match_freq_hz = 0.0;
+    double         mismatch_freq_hz = 0.0;
     double         noise_state = 0.0;
     DichoticContent match_content = DichoticContent::Tone;
     DichoticContent mismatch_content = DichoticContent::Noise;
