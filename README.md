@@ -13,13 +13,15 @@ Questo repository contiene il progetto CMake per l'external `aureonoise~` destin
 
 ## Configurazione dell'ambiente
 
-Il progetto cerca automaticamente il Max SDK leggendo la variabile d'ambiente `MAX_SDK_PATH`. Se non è impostata, viene usato il percorso predefinito `~/max-sdk`. Imposta la variabile prima di aprire VS Code oppure configuralo tramite le impostazioni di CMake Tools:
+Il progetto cerca automaticamente il Max SDK leggendo la variabile d'ambiente `MAX_SDK_PATH`. Se non è impostata, viene usato il percorso predefinito `~/max-sdk`. Lo stesso valore viene usato anche come fallback per `MAX_SDK_ROOT`, quindi nella maggior parte dei casi non è necessario configurare altre variabili.
+
+Se preferisci impostare esplicitamente il percorso (ad esempio quando lo hai installato in una posizione non standard), definisci `MAX_SDK_PATH` prima di aprire VS Code oppure configuralo tramite le impostazioni di CMake Tools:
 
 ```bash
 export MAX_SDK_PATH="/percorso/al/max-sdk"
 ```
 
-Puoi anche definire il percorso di installazione del bundle impostando `MAX_PACKAGE_DIR` (di default `~/Documents/Max 9/Packages/MyDev/externals`).
+Se necessario puoi impostare manualmente `MAX_SDK_ROOT` nello stesso modo (variabile d'ambiente o opzione CMake) per puntare a una copia diversa dell'SDK. Puoi anche definire il percorso di installazione del bundle impostando `MAX_PACKAGE_DIR` (di default `~/Documents/Max 9/Packages/MyDev/externals`).
 
 ## Build con Visual Studio Code
 
