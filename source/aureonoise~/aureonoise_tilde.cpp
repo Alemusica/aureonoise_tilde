@@ -855,6 +855,11 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
   const double min_time_samples = aureo::clamp(x->p_spat_min_ms, 0.0, 500.0) * 0.001 * x->sr;
   const double ipd_amt_global = aureo::clamp01(x->p_spat_ipd);
   const double shadow_amt_global = aureo::clamp01(x->p_spat_shadow);
+  const auto complex_params = x->field.make_complex_params(x->p_env_complex_mag_var,
+                                                           x->p_env_complex_phase_var,
+                                                           x->p_env_complex_corr,
+                                                           x->p_env_complex_tau_ms,
+                                                           x->p_env_complex_bias);
 
   for (long n = 0; n < sampleframes; ++n) {
     ++x->gap_elapsed;
@@ -1023,6 +1028,11 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
                                                        static_cast<double>(g.dur),
                                                        std::abs(pan));
           g.env = envShape;
+          g.complex_env = x->field.prepare_complex_envelope(g.dur,
+                                                            x->sr,
+                                                            x->rng,
+                                                            g.env,
+                                                            complex_params);
           g.on = true;
           g.age = 0;
           x->prev_pan = pan;
@@ -1085,7 +1095,7 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
       if (g.age >= g.dur) { g.on = false; continue; }
 
       const double phase = static_cast<double>(g.age) / static_cast<double>(g.dur);
-      const double env = x->field.envelope(phase, g.env);
+      const double env = x->field.advance_complex_envelope(phase, g.env, g.complex_env, x->rng);
 
       double itd = g.itd + (vhs_mod * 0.25 * itd_scale);
 #if AUREO_THERMO_LATTICE

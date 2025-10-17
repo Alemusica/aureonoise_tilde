@@ -71,6 +71,7 @@ struct Grain {
   int q_levels = 0;
   GrainKind kind = GrainKind::Burst;
   FieldState::EnvelopeShape env;
+  FieldState::ComplexEnvelopeState complex_env;
 };
 
 inline GrainKind choose_kind(double mix, double u)

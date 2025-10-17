@@ -131,6 +131,36 @@ void aureonoise_setup_attributes(t_class* c)
   CLASS_ATTR_LABEL(c,  "env_release", 0, "Rapporto release/IOI");
   CLASS_ATTR_SAVE(c,   "env_release", 0);
 
+  CLASS_ATTR_DOUBLE(c,  "env_complex_magvar", 0, t_aureonoise, p_env_complex_mag_var);
+  CLASS_ATTR_ACCESSORS(c, "env_complex_magvar", NULL, set_env_complex_mag_var);
+  CLASS_ATTR_FILTER_CLIP(c, "env_complex_magvar", 0.0, 1.5);
+  CLASS_ATTR_LABEL(c,  "env_complex_magvar", 0, "Varianza magnitudine envelope complesso");
+  CLASS_ATTR_SAVE(c,   "env_complex_magvar", 0);
+
+  CLASS_ATTR_DOUBLE(c,  "env_complex_phasevar", 0, t_aureonoise, p_env_complex_phase_var);
+  CLASS_ATTR_ACCESSORS(c, "env_complex_phasevar", NULL, set_env_complex_phase_var);
+  CLASS_ATTR_FILTER_CLIP(c, "env_complex_phasevar", 0.0, 1.5);
+  CLASS_ATTR_LABEL(c,  "env_complex_phasevar", 0, "Diffusione fase envelope complesso (rad)");
+  CLASS_ATTR_SAVE(c,   "env_complex_phasevar", 0);
+
+  CLASS_ATTR_DOUBLE(c,  "env_complex_corr", 0, t_aureonoise, p_env_complex_corr);
+  CLASS_ATTR_ACCESSORS(c, "env_complex_corr", NULL, set_env_complex_corr);
+  CLASS_ATTR_FILTER_CLIP(c, "env_complex_corr", 0.0, 0.999);
+  CLASS_ATTR_LABEL(c,  "env_complex_corr", 0, "Correlazione rumore envelope complesso");
+  CLASS_ATTR_SAVE(c,   "env_complex_corr", 0);
+
+  CLASS_ATTR_DOUBLE(c,  "env_complex_tau_ms", 0, t_aureonoise, p_env_complex_tau_ms);
+  CLASS_ATTR_ACCESSORS(c, "env_complex_tau_ms", NULL, set_env_complex_tau_ms);
+  CLASS_ATTR_FILTER_CLIP(c, "env_complex_tau_ms", 1.0, 2000.0);
+  CLASS_ATTR_LABEL(c,  "env_complex_tau_ms", 0, "Costante tempo vellutata (ms)");
+  CLASS_ATTR_SAVE(c,   "env_complex_tau_ms", 0);
+
+  CLASS_ATTR_DOUBLE(c,  "env_complex_bias", 0, t_aureonoise, p_env_complex_bias);
+  CLASS_ATTR_ACCESSORS(c, "env_complex_bias", NULL, set_env_complex_bias);
+  CLASS_ATTR_FILTER_CLIP(c, "env_complex_bias", 0.0, 1.0);
+  CLASS_ATTR_LABEL(c,  "env_complex_bias", 0, "Bias verso sustain envelope complesso (0..1)");
+  CLASS_ATTR_SAVE(c,   "env_complex_bias", 0);
+
   CLASS_ATTR_DOUBLE(c,  "hemis_coupling", 0, t_aureonoise, p_hemis_coupling);
   CLASS_ATTR_ACCESSORS(c, "hemis_coupling", NULL, set_hemis_coupling);
   CLASS_ATTR_FILTER_CLIP(c, "hemis_coupling", 0.0, 1.0);
@@ -420,6 +450,36 @@ t_max_err set_env_sustain(t_aureonoise* x, void*, long ac, t_atom* av)
 t_max_err set_env_release(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_env_release = aureo::clamp(atom_getfloat(av), 0.01, 4.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_complex_mag_var(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_complex_mag_var = aureo::clamp(atom_getfloat(av), 0.0, 1.5);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_complex_phase_var(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_complex_phase_var = aureo::clamp(atom_getfloat(av), 0.0, 1.5);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_complex_corr(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_complex_corr = aureo::clamp(atom_getfloat(av), 0.0, 0.999);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_complex_tau_ms(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_complex_tau_ms = aureo::clamp(atom_getfloat(av), 1.0, 2000.0);
+  return MAX_ERR_NONE;
+}
+
+t_max_err set_env_complex_bias(t_aureonoise* x, void*, long ac, t_atom* av)
+{
+  if (ac && av) x->p_env_complex_bias = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
   return MAX_ERR_NONE;
 }
 
