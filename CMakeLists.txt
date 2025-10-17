@@ -73,7 +73,6 @@ add_library(${C74_TARGET} MODULE
   "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise~/aureonoise_tilde.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_attributes.cpp"
 )
-add_library(kbeyond_tilde ALIAS ${C74_TARGET})
 if (NOT DEFINED MAX_SDK_ROOT)
   if (DEFINED ENV{MAX_SDK_ROOT})
     set(MAX_SDK_ROOT $ENV{MAX_SDK_ROOT})
@@ -92,7 +91,7 @@ else()
   message(FATAL_ERROR "ext.h non trovato sotto ${MAX_SDK_ROOT}")
 endif()
 
-target_include_directories(kbeyond_tilde PRIVATE
+target_include_directories(${C74_TARGET} PRIVATE
   "${C74SUPPORT}/max-includes"
   "${C74SUPPORT}/msp-includes"
 )
