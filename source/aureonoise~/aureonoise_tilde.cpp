@@ -23,6 +23,11 @@ static void aureonoise_reset_reports(t_aureonoise* x)
   x->report_total.store(0, std::memory_order_relaxed);
   x->report_dropped.store(0, std::memory_order_relaxed);
   for (auto& entry : x->report_log) entry = {};
+  x->dichotic_report_head = 0;
+  x->dichotic_report_count = 0;
+  x->dichotic_report_total.store(0, std::memory_order_relaxed);
+  x->dichotic_report_dropped.store(0, std::memory_order_relaxed);
+  for (auto& entry : x->dichotic_report_log) entry = {};
   if (x->report_mu) systhread_mutex_unlock(x->report_mu);
 }
 
@@ -56,6 +61,37 @@ static void aureonoise_log_grain_event(t_aureonoise* x, const t_aureonoise::Grai
   }
 }
 
+static void aureonoise_log_dichotic_event(t_aureonoise* x,
+                                          const t_aureonoise::DichoticReport& report)
+{
+  if (!x) return;
+  bool stored = false;
+  if (x->report_mu) {
+    if (systhread_mutex_trylock(x->report_mu) == 0) {
+      const size_t cap = x->dichotic_report_log.size();
+      if (cap > 0) {
+        x->dichotic_report_log[x->dichotic_report_head] = report;
+        x->dichotic_report_head = (x->dichotic_report_head + 1) % cap;
+        if (x->dichotic_report_count < cap) ++x->dichotic_report_count;
+      }
+      stored = true;
+      systhread_mutex_unlock(x->report_mu);
+    }
+  } else {
+    const size_t cap = x->dichotic_report_log.size();
+    if (cap > 0) {
+      x->dichotic_report_log[x->dichotic_report_head] = report;
+      x->dichotic_report_head = (x->dichotic_report_head + 1) % cap;
+      if (x->dichotic_report_count < cap) ++x->dichotic_report_count;
+    }
+    stored = true;
+  }
+
+  if (!stored) {
+    x->dichotic_report_dropped.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
 static inline double aureonoise_allpass(double x, double a, double& z)
 {
   const double y = -a * x + z;
@@ -68,6 +104,206 @@ static inline double aureonoise_shadow_lp(double x, double a, double& z)
   const double y = (1.0 - a) * x + a * z;
   z = y;
   return y;
+}
+
+static inline double aureonoise_smoothstep01(double x)
+{
+  x = aureo::clamp01(x);
+  return x * x * (3.0 - 2.0 * x);
+}
+
+static double aureonoise_dichotic_envelope(const t_aureonoise::DichoticRuntime& s)
+{
+  if (s.burst_total_samples <= 1.0) return 0.0;
+  const double pos = s.burst_elapsed_samples;
+  const double attack = std::max(1.0, s.attack_samples);
+  const double release = std::max(1.0, s.release_samples);
+  const double sustain_start = std::min(attack, s.burst_total_samples);
+  double sustain_end = s.burst_total_samples - release;
+  if (sustain_end < sustain_start) sustain_end = sustain_start;
+  if (pos < sustain_start) {
+    return aureonoise_smoothstep01(pos / sustain_start);
+  }
+  if (pos > sustain_end) {
+    const double tail = std::max(1.0, s.burst_total_samples - sustain_end);
+    return aureonoise_smoothstep01((s.burst_total_samples - pos) / tail);
+  }
+  return 1.0;
+}
+
+void aureonoise_reset_dichotic_state(t_aureonoise* x)
+{
+  if (!x) return;
+  const double sr = (x->sr > 0.0) ? x->sr : 44100.0;
+  const long mode_idx = std::clamp<long>(x->p_mode, 0, 1);
+  x->mode = static_cast<t_aureonoise::StimulusMode>(mode_idx);
+
+  auto clamp_content = [](long v) {
+    if (v < 0) v = 0;
+    if (v > 1) v = 1;
+    return v;
+  };
+
+  auto& ds = x->dichotic;
+  ds.left_next = true;
+  ds.active = false;
+  ds.left_ear = true;
+  ds.match = true;
+  ds.samples_until_next = 0.0;
+  ds.interval_samples = 0.0;
+  ds.burst_total_samples = 0.0;
+  ds.burst_elapsed_samples = 0.0;
+  ds.attack_samples = 0.0;
+  ds.release_samples = 0.0;
+  ds.amp = aureo::clamp(x->p_dichotic_amp, 0.0, 1.0);
+  ds.tone_phase = 0.0;
+  ds.tone_inc = 0.0;
+  ds.current_freq = 0.0;
+  ds.noise_state = 0.0;
+  ds.match_probability = aureo::clamp01(x->p_dichotic_match_prob);
+  ds.match_content = static_cast<t_aureonoise::DichoticContent>(clamp_content(x->p_dichotic_content_match));
+  ds.mismatch_content = static_cast<t_aureonoise::DichoticContent>(clamp_content(x->p_dichotic_content_mismatch));
+  ds.current_content = ds.match_content;
+  ds.onset_timestamp_sec = 0.0;
+  ds.trial_index = 0;
+
+  const double rate = aureo::clamp(x->p_dichotic_rate_hz, 0.01, 2.0);
+  ds.interval_samples = (rate > 1.0e-6) ? (sr / rate) : (sr * 10.0);
+
+  const double burst_ms = aureo::clamp(x->p_dichotic_burst_ms, 50.0, 4000.0);
+  ds.burst_total_samples = std::max(1.0, burst_ms * 0.001 * sr);
+
+  const double max_env_ms = std::max(5.0, 0.9 * burst_ms);
+  const double att_ms = aureo::clamp(x->p_dichotic_env_attack_ms, 5.0, max_env_ms);
+  const double rel_ms = aureo::clamp(x->p_dichotic_env_release_ms, 5.0, max_env_ms);
+  ds.attack_samples = std::max(1.0, att_ms * 0.001 * sr);
+  ds.release_samples = std::max(1.0, rel_ms * 0.001 * sr);
+  const double sum_env = ds.attack_samples + ds.release_samples;
+  if (sum_env >= ds.burst_total_samples) {
+    const double scale = (ds.burst_total_samples - 1.0) / std::max(1.0, sum_env);
+    if (scale > 0.0) {
+      ds.attack_samples = std::max(1.0, ds.attack_samples * scale);
+      ds.release_samples = std::max(1.0, ds.release_samples * scale);
+    } else {
+      ds.attack_samples = 0.5 * ds.burst_total_samples;
+      ds.release_samples = 0.5 * ds.burst_total_samples;
+    }
+  }
+
+  ds.samples_until_next = ds.interval_samples;
+}
+
+static void aureonoise_emit_dichotic_trial(t_aureonoise* x,
+                                           const t_aureonoise::DichoticReport& report)
+{
+  if (!x || !x->out_info) return;
+  static t_symbol* sym_dichotic = gensym("dichotic");
+  static t_symbol* sym_index = gensym("index");
+  static t_symbol* sym_time = gensym("time_ms");
+  static t_symbol* sym_ear = gensym("ear");
+  static t_symbol* sym_match = gensym("match");
+  static t_symbol* sym_content = gensym("content");
+  static t_symbol* sym_freq = gensym("freq_hz");
+  static t_symbol* sym_amp = gensym("amp");
+  static t_symbol* sym_L = gensym("L");
+  static t_symbol* sym_R = gensym("R");
+  static t_symbol* sym_tone = gensym("tone");
+  static t_symbol* sym_noise = gensym("noise");
+
+  t_atom av[16];
+  long ac = 0;
+  atom_setsym(av + ac++, sym_index);
+  atom_setlong(av + ac++, static_cast<t_atom_long>(report.index));
+  atom_setsym(av + ac++, sym_time);
+  atom_setfloat(av + ac++, report.timestamp_sec * 1000.0);
+  atom_setsym(av + ac++, sym_ear);
+  atom_setsym(av + ac++, report.left_ear ? sym_L : sym_R);
+  atom_setsym(av + ac++, sym_match);
+  atom_setlong(av + ac++, report.match ? 1 : 0);
+  atom_setsym(av + ac++, sym_content);
+  atom_setsym(av + ac++, report.is_tone ? sym_tone : sym_noise);
+  atom_setsym(av + ac++, sym_freq);
+  atom_setfloat(av + ac++, report.freq_hz);
+  atom_setsym(av + ac++, sym_amp);
+  atom_setfloat(av + ac++, report.amp);
+  outlet_anything(x->out_info, sym_dichotic, ac, av);
+}
+
+static void aureonoise_start_dichotic_burst(t_aureonoise* x)
+{
+  if (!x) return;
+  auto& ds = x->dichotic;
+  const double sr = (x->sr > 0.0) ? x->sr : 44100.0;
+  ds.active = true;
+  ds.left_ear = ds.left_next;
+  ds.left_next = !ds.left_next;
+  const double u = x->rng.uni01();
+  ds.match = (u <= ds.match_probability);
+  ds.current_content = ds.match ? ds.match_content : ds.mismatch_content;
+  const bool is_tone = (ds.current_content == t_aureonoise::DichoticContent::Tone);
+  const double raw_freq = ds.match ? x->p_dichotic_tone_match_hz : x->p_dichotic_tone_mismatch_hz;
+  ds.current_freq = is_tone ? aureo::clamp(raw_freq, 50.0, 8000.0) : 0.0;
+  ds.tone_phase = 0.0;
+  ds.tone_inc = is_tone ? (2.0 * aureo::kPi * ds.current_freq / sr) : 0.0;
+  ds.noise_state = 0.0;
+  ds.burst_elapsed_samples = 0.0;
+  ds.onset_timestamp_sec = static_cast<double>(x->sample_counter) / sr;
+  const uint64_t idx = x->dichotic_report_total.fetch_add(1, std::memory_order_relaxed) + 1;
+  ds.trial_index = idx;
+  t_aureonoise::DichoticReport report;
+  report.index = idx;
+  report.timestamp_sec = ds.onset_timestamp_sec;
+  report.left_ear = ds.left_ear;
+  report.match = ds.match;
+  report.is_tone = is_tone;
+  report.freq_hz = ds.current_freq;
+  report.amp = ds.amp;
+  aureonoise_log_dichotic_event(x, report);
+  aureonoise_emit_dichotic_trial(x, report);
+  ds.samples_until_next = ds.interval_samples;
+}
+
+static void aureonoise_perform64_dichotic(t_aureonoise* x, double* outL, double* outR, long sampleframes)
+{
+  auto& ds = x->dichotic;
+  for (long n = 0; n < sampleframes; ++n) {
+    if (!ds.active) {
+      ds.samples_until_next -= 1.0;
+      if (ds.samples_until_next <= 0.0) {
+        aureonoise_start_dichotic_burst(x);
+      }
+    }
+
+    double yL = 0.0;
+    double yR = 0.0;
+
+    if (ds.active && ds.burst_total_samples > 0.0) {
+      const double env = aureonoise_dichotic_envelope(ds);
+      double stim = 0.0;
+      if (ds.current_content == t_aureonoise::DichoticContent::Tone) {
+        stim = std::sin(ds.tone_phase);
+        ds.tone_phase += ds.tone_inc;
+        if (ds.tone_phase > aureo::kTwoPi) ds.tone_phase -= aureo::kTwoPi;
+      } else {
+        ds.noise_state = 0.96 * ds.noise_state + 0.04 * x->rng.uniPM1();
+        stim = ds.noise_state;
+      }
+      const double v = ds.amp * env * stim;
+      if (ds.left_ear) yL += v; else yR += v;
+      ds.burst_elapsed_samples += 1.0;
+      if (ds.burst_elapsed_samples >= ds.burst_total_samples) {
+        ds.active = false;
+        ds.burst_elapsed_samples = 0.0;
+        ds.tone_phase = 0.0;
+        ds.noise_state = 0.0;
+        ds.samples_until_next = ds.interval_samples;
+      }
+    }
+
+    outL[n] = yL;
+    outR[n] = yR;
+    ++x->sample_counter;
+  }
 }
 
 static bool aureonoise_poisson_enforce(const t_aureonoise* x, double& pan, double minPan, double minSamples)
@@ -299,6 +535,7 @@ void* aureonoise_new(t_symbol*, long argc, t_atom* argv)
 #endif
 #endif
 
+  aureonoise_reset_dichotic_state(x);
   attr_args_process(x, static_cast<short>(argc), argv);
   return x;
 }
@@ -335,6 +572,7 @@ void aureonoise_report(t_aureonoise* x)
   if (!x || !x->out_info) return;
 
   std::vector<t_aureonoise::GrainReport> snapshot;
+  std::vector<t_aureonoise::DichoticReport> dichotic_snapshot;
   if (x->report_mu) systhread_mutex_lock(x->report_mu);
   const size_t count = x->report_count;
   const size_t cap = x->report_log.size();
@@ -344,6 +582,16 @@ void aureonoise_report(t_aureonoise* x)
     for (size_t i = 0; i < count; ++i) {
       snapshot.push_back(x->report_log[idx]);
       idx = (idx + 1) % cap;
+    }
+  }
+  const size_t dcount = x->dichotic_report_count;
+  const size_t dcap = x->dichotic_report_log.size();
+  if (dcap > 0 && dcount > 0) {
+    dichotic_snapshot.reserve(dcount);
+    size_t idx = (dcount < dcap) ? ((x->dichotic_report_head + dcap - dcount) % dcap) : x->dichotic_report_head;
+    for (size_t i = 0; i < dcount; ++i) {
+      dichotic_snapshot.push_back(x->dichotic_report_log[idx]);
+      idx = (idx + 1) % dcap;
     }
   }
   if (x->report_mu) systhread_mutex_unlock(x->report_mu);
@@ -366,6 +614,15 @@ void aureonoise_report(t_aureonoise* x)
   const double std_gap_sec = std::sqrt(var_gap_samples) / sr;
   const double mean_rate = (mean_gap_sec > 1.0e-9) ? (1.0 / mean_gap_sec) : 0.0;
   const double gap_cv = (mean_gap_sec > 1.0e-9) ? (std_gap_sec / mean_gap_sec) : 0.0;
+
+  size_t dichotic_match_count = 0;
+  for (const auto& d : dichotic_snapshot) {
+    if (d.match) ++dichotic_match_count;
+  }
+  const double dichotic_match_ratio = (!dichotic_snapshot.empty())
+                                        ? (static_cast<double>(dichotic_match_count) /
+                                           static_cast<double>(dichotic_snapshot.size()))
+                                        : 0.0;
 
   static t_symbol* sym_grain = gensym("grain");
   static t_symbol* sym_summary = gensym("summary");
@@ -392,6 +649,15 @@ void aureonoise_report(t_aureonoise* x)
   static t_symbol* sym_burst = gensym("burst");
   static t_symbol* sym_thermo = gensym("thermo");
   static t_symbol* sym_lattice = gensym("lattice");
+  static t_symbol* sym_dichotic_trial = gensym("dichotic_trial");
+  static t_symbol* sym_ear = gensym("ear");
+  static t_symbol* sym_match = gensym("match");
+  static t_symbol* sym_content = gensym("content");
+  static t_symbol* sym_freq = gensym("freq_hz");
+  static t_symbol* sym_left = gensym("L");
+  static t_symbol* sym_right = gensym("R");
+  static t_symbol* sym_tone = gensym("tone");
+  static t_symbol* sym_noise = gensym("noise");
 
   for (const auto& r : snapshot) {
     t_atom av[40];
@@ -422,10 +688,25 @@ void aureonoise_report(t_aureonoise* x)
     outlet_anything(x->out_info, sym_grain, ac, av);
   }
 
+  for (const auto& d : dichotic_snapshot) {
+    t_atom dv[24];
+    long dc = 0;
+    atom_setsym(dv + dc++, sym_id); atom_setlong(dv + dc++, static_cast<t_atom_long>(d.index));
+    atom_setsym(dv + dc++, sym_time); atom_setfloat(dv + dc++, d.timestamp_sec * 1000.0);
+    atom_setsym(dv + dc++, sym_ear); atom_setsym(dv + dc++, d.left_ear ? sym_left : sym_right);
+    atom_setsym(dv + dc++, sym_match); atom_setlong(dv + dc++, d.match ? 1 : 0);
+    atom_setsym(dv + dc++, sym_content); atom_setsym(dv + dc++, d.is_tone ? sym_tone : sym_noise);
+    atom_setsym(dv + dc++, sym_freq); atom_setfloat(dv + dc++, d.freq_hz);
+    atom_setsym(dv + dc++, sym_amp); atom_setfloat(dv + dc++, d.amp);
+    outlet_anything(x->out_info, sym_dichotic_trial, dc, dv);
+  }
+
   const uint64_t total_events = x->report_total.load(std::memory_order_relaxed);
   const uint64_t dropped_events = x->report_dropped.load(std::memory_order_relaxed);
+  const uint64_t total_trials = x->dichotic_report_total.load(std::memory_order_relaxed);
+  const uint64_t dropped_trials = x->dichotic_report_dropped.load(std::memory_order_relaxed);
 
-  t_atom summary[16];
+  t_atom summary[24];
   long sc = 0;
   atom_setsym(summary + sc++, gensym("events_total"));
   atom_setlong(summary + sc++, static_cast<t_atom_long>(total_events));
@@ -439,6 +720,14 @@ void aureonoise_report(t_aureonoise* x)
   atom_setfloat(summary + sc++, gap_cv);
   atom_setsym(summary + sc++, gensym("dropped"));
   atom_setlong(summary + sc++, static_cast<t_atom_long>(dropped_events));
+  atom_setsym(summary + sc++, gensym("dichotic_trials_total"));
+  atom_setlong(summary + sc++, static_cast<t_atom_long>(total_trials));
+  atom_setsym(summary + sc++, gensym("dichotic_trials_buffered"));
+  atom_setlong(summary + sc++, static_cast<t_atom_long>(dichotic_snapshot.size()));
+  atom_setsym(summary + sc++, gensym("dichotic_match_ratio"));
+  atom_setfloat(summary + sc++, dichotic_match_ratio);
+  atom_setsym(summary + sc++, gensym("dichotic_dropped"));
+  atom_setlong(summary + sc++, static_cast<t_atom_long>(dropped_trials));
   outlet_anything(x->out_info, sym_summary, sc, summary);
 }
 
@@ -459,6 +748,7 @@ void aureonoise_clear(t_aureonoise* x)
   x->last_gap_samples = 0.0;
   x->last_dur_samples = 0.0;
   aureonoise_reset_reports(x);
+  aureonoise_reset_dichotic_state(x);
 #if AUREO_THERMO_LATTICE
   x->lat_phase = 0.0;
   x->lat_last_v = 0.0;
@@ -485,6 +775,7 @@ void aureonoise_dsp64(t_aureonoise* x, t_object* dsp64, short*, double sr, long,
   aureonoise_update_pinna_state(x);
   x->pinna_mix = x->pinna_mix_target;
   aureonoise_update_pinna_filters(x);
+  aureonoise_reset_dichotic_state(x);
 #if AUREO_THERMO_LATTICE
   aureonoise_lattice_safe_resize(x,
                                  static_cast<int>(x->p_lat_x),
@@ -519,6 +810,11 @@ void aureonoise_perform64(t_aureonoise* x, t_object*, double** ins, long numins,
   double* outL = (numouts >= 1 && outs[0]) ? outs[0] : nullptr;
   double* outR = (numouts >= 2 && outs[1]) ? outs[1] : nullptr;
   if (!outL || !outR) return;
+
+  if (x->mode == t_aureonoise::StimulusMode::Dichotic) {
+    aureonoise_perform64_dichotic(x, outL, outR, sampleframes);
+    return;
+  }
 
 #ifdef __SSE2__
   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);

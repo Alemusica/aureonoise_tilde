@@ -39,6 +39,17 @@ Se necessario puoi impostare manualmente `MAX_SDK_ROOT` nello stesso modo (varia
 - Assicurati di lanciare Cycling '74 Max dopo l'installazione per verificare che l'external venga caricato senza errori.
 - La spazializzazione binaurale sintetica sfrutta ora un modello Woodworth/Gaussian crossfeed con report dettagliato degli azimuth, utile da consultare tramite il messaggio `report` di aureonoise~.
 
+## Modalità di stimolo
+
+L'attributo `mode` consente di scegliere tra la generazione **texture** classica e la nuova modalità **dichotic** pensata per paradigmi percettivi L/R estremamente lenti (0.1–0.2 Hz). In modalità dichotic:
+
+- I burst vengono alternati automaticamente fra orecchio sinistro e destro rispettando l'intervallo impostato (`dichotic_rate`).
+- L'inviluppo è configurabile tramite `dichotic_burst_ms`, `dichotic_attack_ms` e `dichotic_release_ms`, con ampiezza controllata da `dichotic_amp`.
+- È possibile programmare trial *match/mismatch* con probabilità `dichotic_match_prob`, scegliendo per ciascun caso se riprodurre **rumore** o **toni** (`dichotic_content_match` / `dichotic_content_mismatch`) e, per i toni, le frequenze di riferimento (`dichotic_tone_match_hz`, `dichotic_tone_mismatch_hz`).
+- Ogni burst produce un messaggio diagnostico sull'outlet info (`dichotic index …`) e viene tracciato dal comando `report`, che riporta anche il rapporto match/mismatch e lo stato del buffer.
+
+Quando `mode` è impostato su `texture` le elaborazioni classiche (grani generativi, pinna/crossfeed, ecc.) restano invariate; passando a `dichotic` vengono disattivate automaticamente le sezioni non pertinenti.
+
 ## Risoluzione problemi
 
 - **Errore include Max SDK**: indica che il percorso `MAX_SDK_PATH` non punta alla cartella che contiene `source/max-sdk-base/script/max-pretarget.cmake`.
