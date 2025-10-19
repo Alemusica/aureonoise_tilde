@@ -25,16 +25,6 @@ extern "C" {
 struct t_aureonoise {
   t_pxobject ob;
 
-  enum class StimulusMode : long {
-    Texture = 0,
-    Dichotic = 1,
-  };
-
-  enum class DichoticContent : long {
-    Noise = 0,
-    Tone = 1,
-  };
-
   struct GrainReport {
     uint64_t index = 0;
     double   timestamp_sec = 0.0;
@@ -62,17 +52,6 @@ struct t_aureonoise {
   };
 
   double p_rate = 8.0;
-  long   p_mode = static_cast<long>(StimulusMode::Texture);
-  double p_dichotic_rate_hz = 0.12;
-  double p_dichotic_burst_ms = 800.0;
-  double p_dichotic_env_attack_ms = 120.0;
-  double p_dichotic_env_release_ms = 180.0;
-  double p_dichotic_amp = 0.6;
-  double p_dichotic_match_prob = 0.5;
-  double p_dichotic_tone_match_hz = 750.0;
-  double p_dichotic_tone_mismatch_hz = 1200.0;
-  long   p_dichotic_content_match = static_cast<long>(DichoticContent::Tone);
-  long   p_dichotic_content_mismatch = static_cast<long>(DichoticContent::Noise);
   double p_baselen_ms = 120.0;
   double p_len_phi = 0.8;
   double p_width = 1.0;
@@ -86,11 +65,6 @@ struct t_aureonoise {
   double p_env_decay = 0.28;
   double p_env_sustain = 0.55;
   double p_env_release = 0.30;
-  double p_env_complex_mag_var = 0.18;
-  double p_env_complex_phase_var = 0.32;
-  double p_env_complex_corr = 0.72;
-  double p_env_complex_tau_ms = 24.0;
-  double p_env_complex_bias = 0.35;
   double p_hemis_coupling = 0.6;
   long   p_noise_color = static_cast<long>(aureo::NoiseColor::Pink);
   double p_color_amt = 0.65;
@@ -118,7 +92,6 @@ struct t_aureonoise {
 #endif
 
   double sr = 44100.0;
-  StimulusMode mode = StimulusMode::Texture;
   aureo::RNG rng;
   aureo::Weyl w_phi;
   aureo::Weyl w_s2;
@@ -153,32 +126,6 @@ struct t_aureonoise {
   int primes_count = 0;
   std::array<aureo::Grain, aureo::kMaxGrains> grains{};
 
-  struct DichoticRuntime {
-    bool           left_next = true;
-    bool           active = false;
-    bool           left_ear = true;
-    bool           match = true;
-    double         samples_until_next = 0.0;
-    double         interval_samples = 0.0;
-    double         burst_total_samples = 0.0;
-    double         burst_elapsed_samples = 0.0;
-    double         attack_samples = 0.0;
-    double         release_samples = 0.0;
-    double         amp = 0.0;
-    double         tone_phase = 0.0;
-    double         tone_inc = 0.0;
-    double         current_freq = 0.0;
-    double         match_freq_hz = 0.0;
-    double         mismatch_freq_hz = 0.0;
-    double         noise_state = 0.0;
-    DichoticContent match_content = DichoticContent::Tone;
-    DichoticContent mismatch_content = DichoticContent::Noise;
-    DichoticContent current_content = DichoticContent::Tone;
-    double         match_probability = 0.5;
-    uint64_t       trial_index = 0;
-    double         onset_timestamp_sec = 0.0;
-  } dichotic;
-
   void* out_info = nullptr;
   t_systhread_mutex report_mu = nullptr;
   static constexpr size_t kReportCapacity = 512;
@@ -187,23 +134,6 @@ struct t_aureonoise {
   size_t report_count = 0;
   std::atomic<uint64_t> report_total{0};
   std::atomic<uint64_t> report_dropped{0};
-
-  struct DichoticReport {
-    uint64_t index = 0;
-    double   timestamp_sec = 0.0;
-    bool     left_ear = true;
-    bool     match = true;
-    bool     is_tone = true;
-    double   freq_hz = 0.0;
-    double   amp = 0.0;
-  };
-
-  static constexpr size_t kDichoticReportCapacity = 256;
-  std::array<DichoticReport, kDichoticReportCapacity> dichotic_report_log{};
-  size_t dichotic_report_head = 0;
-  size_t dichotic_report_count = 0;
-  std::atomic<uint64_t> dichotic_report_total{0};
-  std::atomic<uint64_t> dichotic_report_dropped{0};
 
   double prev_pan = 0.0;
   double prev_itd = 0.0;
@@ -267,7 +197,6 @@ void aureonoise_setup_attributes(t_class* c);
 int  pick_prime_in_range(t_aureonoise* x, int lo, int hi, double u);
 void make_small_primes(t_aureonoise* x);
 void aureonoise_report(t_aureonoise* x);
-void aureonoise_reset_dichotic_state(t_aureonoise* x);
 
 t_max_err set_rate(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_baselen(t_aureonoise* x, void*, long ac, t_atom* av);
@@ -283,25 +212,9 @@ t_max_err set_env_attack(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_env_decay(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_env_sustain(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_env_release(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_env_complex_mag_var(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_env_complex_phase_var(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_env_complex_corr(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_env_complex_tau_ms(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_env_complex_bias(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_hemis_coupling(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_noise_color(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_color_amt(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_mode(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_rate(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_burst_ms(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_attack_ms(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_release_ms(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_amp(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_match_prob(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_tone_match(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_tone_mismatch(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_content_match(t_aureonoise* x, void*, long ac, t_atom* av);
-t_max_err set_dichotic_content_mismatch(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_vhs_wow(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_vhs_flutter(t_aureonoise* x, void*, long ac, t_atom* av);
 t_max_err set_glitch_mix(t_aureonoise* x, void*, long ac, t_atom* av);

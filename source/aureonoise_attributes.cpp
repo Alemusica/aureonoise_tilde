@@ -39,16 +39,6 @@ int pick_prime_in_range(t_aureonoise* x, int lo, int hi, double u)
 
 void aureonoise_setup_attributes(t_class* c)
 {
-  CLASS_ATTR_LONG(c,   "mode",       0, t_aureonoise, p_mode);
-  CLASS_ATTR_ACCESSORS(c, "mode", NULL, set_mode);
-  CLASS_ATTR_STYLE_LABEL(c, "mode", 0, "enumindex", "Modalità stimolo");
-#ifdef CLASS_ATTR_ENUMINDEX
-  CLASS_ATTR_ENUMINDEX(c, "mode", 0, "texture dichotic");
-#else
-  CLASS_ATTR_ENUM(c, "mode", 0, "texture dichotic");
-#endif
-  CLASS_ATTR_SAVE(c,   "mode",       0);
-
   CLASS_ATTR_DOUBLE(c,  "rate",       0, t_aureonoise, p_rate);
   CLASS_ATTR_ACCESSORS(c, "rate", NULL, set_rate);
   CLASS_ATTR_FILTER_CLIP(c, "rate", 0.0, aureo::kMaxEventRateHz);
@@ -131,36 +121,6 @@ void aureonoise_setup_attributes(t_class* c)
   CLASS_ATTR_LABEL(c,  "env_release", 0, "Rapporto release/IOI");
   CLASS_ATTR_SAVE(c,   "env_release", 0);
 
-  CLASS_ATTR_DOUBLE(c,  "env_complex_magvar", 0, t_aureonoise, p_env_complex_mag_var);
-  CLASS_ATTR_ACCESSORS(c, "env_complex_magvar", NULL, set_env_complex_mag_var);
-  CLASS_ATTR_FILTER_CLIP(c, "env_complex_magvar", 0.0, 1.5);
-  CLASS_ATTR_LABEL(c,  "env_complex_magvar", 0, "Varianza magnitudine envelope complesso");
-  CLASS_ATTR_SAVE(c,   "env_complex_magvar", 0);
-
-  CLASS_ATTR_DOUBLE(c,  "env_complex_phasevar", 0, t_aureonoise, p_env_complex_phase_var);
-  CLASS_ATTR_ACCESSORS(c, "env_complex_phasevar", NULL, set_env_complex_phase_var);
-  CLASS_ATTR_FILTER_CLIP(c, "env_complex_phasevar", 0.0, 1.5);
-  CLASS_ATTR_LABEL(c,  "env_complex_phasevar", 0, "Diffusione fase envelope complesso (rad)");
-  CLASS_ATTR_SAVE(c,   "env_complex_phasevar", 0);
-
-  CLASS_ATTR_DOUBLE(c,  "env_complex_corr", 0, t_aureonoise, p_env_complex_corr);
-  CLASS_ATTR_ACCESSORS(c, "env_complex_corr", NULL, set_env_complex_corr);
-  CLASS_ATTR_FILTER_CLIP(c, "env_complex_corr", 0.0, 0.999);
-  CLASS_ATTR_LABEL(c,  "env_complex_corr", 0, "Correlazione rumore envelope complesso");
-  CLASS_ATTR_SAVE(c,   "env_complex_corr", 0);
-
-  CLASS_ATTR_DOUBLE(c,  "env_complex_tau_ms", 0, t_aureonoise, p_env_complex_tau_ms);
-  CLASS_ATTR_ACCESSORS(c, "env_complex_tau_ms", NULL, set_env_complex_tau_ms);
-  CLASS_ATTR_FILTER_CLIP(c, "env_complex_tau_ms", 1.0, 2000.0);
-  CLASS_ATTR_LABEL(c,  "env_complex_tau_ms", 0, "Costante tempo vellutata (ms)");
-  CLASS_ATTR_SAVE(c,   "env_complex_tau_ms", 0);
-
-  CLASS_ATTR_DOUBLE(c,  "env_complex_bias", 0, t_aureonoise, p_env_complex_bias);
-  CLASS_ATTR_ACCESSORS(c, "env_complex_bias", NULL, set_env_complex_bias);
-  CLASS_ATTR_FILTER_CLIP(c, "env_complex_bias", 0.0, 1.0);
-  CLASS_ATTR_LABEL(c,  "env_complex_bias", 0, "Bias verso sustain envelope complesso (0..1)");
-  CLASS_ATTR_SAVE(c,   "env_complex_bias", 0);
-
   CLASS_ATTR_DOUBLE(c,  "hemis_coupling", 0, t_aureonoise, p_hemis_coupling);
   CLASS_ATTR_ACCESSORS(c, "hemis_coupling", NULL, set_hemis_coupling);
   CLASS_ATTR_FILTER_CLIP(c, "hemis_coupling", 0.0, 1.0);
@@ -177,74 +137,6 @@ void aureonoise_setup_attributes(t_class* c)
   CLASS_ATTR_FILTER_CLIP(c, "pinna_depth", 0.0, 24.0);
   CLASS_ATTR_LABEL(c, "pinna_depth", 0, "Profondità notch pinna (dB)");
   CLASS_ATTR_SAVE(c, "pinna_depth", 0);
-
-  CLASS_ATTR_DOUBLE(c, "dichotic_rate", 0, t_aureonoise, p_dichotic_rate_hz);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_rate", NULL, set_dichotic_rate);
-  CLASS_ATTR_FILTER_CLIP(c, "dichotic_rate", 0.01, 2.0);
-  CLASS_ATTR_LABEL(c, "dichotic_rate", 0, "Frequenza burst dichotici (Hz)");
-  CLASS_ATTR_SAVE(c, "dichotic_rate", 0);
-
-  CLASS_ATTR_DOUBLE(c, "dichotic_burst_ms", 0, t_aureonoise, p_dichotic_burst_ms);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_burst_ms", NULL, set_dichotic_burst_ms);
-  CLASS_ATTR_FILTER_CLIP(c, "dichotic_burst_ms", 50.0, 4000.0);
-  CLASS_ATTR_LABEL(c, "dichotic_burst_ms", 0, "Durata burst dichotici (ms)");
-  CLASS_ATTR_SAVE(c, "dichotic_burst_ms", 0);
-
-  CLASS_ATTR_DOUBLE(c, "dichotic_attack_ms", 0, t_aureonoise, p_dichotic_env_attack_ms);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_attack_ms", NULL, set_dichotic_attack_ms);
-  CLASS_ATTR_FILTER_CLIP(c, "dichotic_attack_ms", 5.0, 2000.0);
-  CLASS_ATTR_LABEL(c, "dichotic_attack_ms", 0, "Attacco envelope dichotico (ms)");
-  CLASS_ATTR_SAVE(c, "dichotic_attack_ms", 0);
-
-  CLASS_ATTR_DOUBLE(c, "dichotic_release_ms", 0, t_aureonoise, p_dichotic_env_release_ms);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_release_ms", NULL, set_dichotic_release_ms);
-  CLASS_ATTR_FILTER_CLIP(c, "dichotic_release_ms", 5.0, 2000.0);
-  CLASS_ATTR_LABEL(c, "dichotic_release_ms", 0, "Release envelope dichotico (ms)");
-  CLASS_ATTR_SAVE(c, "dichotic_release_ms", 0);
-
-  CLASS_ATTR_DOUBLE(c, "dichotic_amp", 0, t_aureonoise, p_dichotic_amp);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_amp", NULL, set_dichotic_amp);
-  CLASS_ATTR_FILTER_CLIP(c, "dichotic_amp", 0.0, 1.0);
-  CLASS_ATTR_LABEL(c, "dichotic_amp", 0, "Ampiezza burst dichotici (0..1)");
-  CLASS_ATTR_SAVE(c, "dichotic_amp", 0);
-
-  CLASS_ATTR_DOUBLE(c, "dichotic_match_prob", 0, t_aureonoise, p_dichotic_match_prob);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_match_prob", NULL, set_dichotic_match_prob);
-  CLASS_ATTR_FILTER_CLIP(c, "dichotic_match_prob", 0.0, 1.0);
-  CLASS_ATTR_LABEL(c, "dichotic_match_prob", 0, "Probabilità trial match");
-  CLASS_ATTR_SAVE(c, "dichotic_match_prob", 0);
-
-  CLASS_ATTR_DOUBLE(c, "dichotic_tone_match_hz", 0, t_aureonoise, p_dichotic_tone_match_hz);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_tone_match_hz", NULL, set_dichotic_tone_match);
-  CLASS_ATTR_FILTER_CLIP(c, "dichotic_tone_match_hz", 50.0, 8000.0);
-  CLASS_ATTR_LABEL(c, "dichotic_tone_match_hz", 0, "Frequenza tono trial match (Hz)");
-  CLASS_ATTR_SAVE(c, "dichotic_tone_match_hz", 0);
-
-  CLASS_ATTR_DOUBLE(c, "dichotic_tone_mismatch_hz", 0, t_aureonoise, p_dichotic_tone_mismatch_hz);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_tone_mismatch_hz", NULL, set_dichotic_tone_mismatch);
-  CLASS_ATTR_FILTER_CLIP(c, "dichotic_tone_mismatch_hz", 50.0, 8000.0);
-  CLASS_ATTR_LABEL(c, "dichotic_tone_mismatch_hz", 0, "Frequenza tono trial mismatch (Hz)");
-  CLASS_ATTR_SAVE(c, "dichotic_tone_mismatch_hz", 0);
-
-  CLASS_ATTR_LONG(c, "dichotic_content_match", 0, t_aureonoise, p_dichotic_content_match);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_content_match", NULL, set_dichotic_content_match);
-  CLASS_ATTR_STYLE_LABEL(c, "dichotic_content_match", 0, "enumindex", "Contenuto trial match");
-#ifdef CLASS_ATTR_ENUMINDEX
-  CLASS_ATTR_ENUMINDEX(c, "dichotic_content_match", 0, "noise tone");
-#else
-  CLASS_ATTR_ENUM(c, "dichotic_content_match", 0, "noise tone");
-#endif
-  CLASS_ATTR_SAVE(c, "dichotic_content_match", 0);
-
-  CLASS_ATTR_LONG(c, "dichotic_content_mismatch", 0, t_aureonoise, p_dichotic_content_mismatch);
-  CLASS_ATTR_ACCESSORS(c, "dichotic_content_mismatch", NULL, set_dichotic_content_mismatch);
-  CLASS_ATTR_STYLE_LABEL(c, "dichotic_content_mismatch", 0, "enumindex", "Contenuto trial mismatch");
-#ifdef CLASS_ATTR_ENUMINDEX
-  CLASS_ATTR_ENUMINDEX(c, "dichotic_content_mismatch", 0, "noise tone");
-#else
-  CLASS_ATTR_ENUM(c, "dichotic_content_mismatch", 0, "noise tone");
-#endif
-  CLASS_ATTR_SAVE(c, "dichotic_content_mismatch", 0);
 
   CLASS_ATTR_LONG  (c,  "color",     0, t_aureonoise, p_noise_color);
   CLASS_ATTR_ACCESSORS(c, "color", NULL, set_noise_color);
@@ -453,36 +345,6 @@ t_max_err set_env_release(t_aureonoise* x, void*, long ac, t_atom* av)
   return MAX_ERR_NONE;
 }
 
-t_max_err set_env_complex_mag_var(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) x->p_env_complex_mag_var = aureo::clamp(atom_getfloat(av), 0.0, 1.5);
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_env_complex_phase_var(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) x->p_env_complex_phase_var = aureo::clamp(atom_getfloat(av), 0.0, 1.5);
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_env_complex_corr(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) x->p_env_complex_corr = aureo::clamp(atom_getfloat(av), 0.0, 0.999);
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_env_complex_tau_ms(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) x->p_env_complex_tau_ms = aureo::clamp(atom_getfloat(av), 1.0, 2000.0);
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_env_complex_bias(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) x->p_env_complex_bias = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
-  return MAX_ERR_NONE;
-}
-
 t_max_err set_hemis_coupling(t_aureonoise* x, void*, long ac, t_atom* av)
 {
   if (ac && av) x->p_hemis_coupling = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
@@ -513,127 +375,6 @@ t_max_err set_color_amt(t_aureonoise* x, void*, long ac, t_atom* av)
   if (ac && av) {
     x->p_color_amt = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
     x->noise.amount = x->p_color_amt;
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_mode(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    long mode = 0;
-    if (atom_gettype(av) == A_SYM) {
-      const char* s = atom_getsym(av)->s_name;
-      if (!std::strcmp(s, "dichotic")) mode = 1;
-    } else {
-      mode = atom_getlong(av);
-    }
-    if (mode < 0) mode = 0;
-    if (mode > 1) mode = 1;
-    x->p_mode = mode;
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_rate(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_rate_hz = aureo::clamp(atom_getfloat(av), 0.01, 2.0);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_burst_ms(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_burst_ms = aureo::clamp(atom_getfloat(av), 50.0, 4000.0);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_attack_ms(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_env_attack_ms = aureo::clamp(atom_getfloat(av), 5.0, 2000.0);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_release_ms(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_env_release_ms = aureo::clamp(atom_getfloat(av), 5.0, 2000.0);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_amp(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_amp = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_match_prob(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_match_prob = aureo::clamp(atom_getfloat(av), 0.0, 1.0);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_tone_match(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_tone_match_hz = aureo::clamp(atom_getfloat(av), 50.0, 8000.0);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_tone_mismatch(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_tone_mismatch_hz = aureo::clamp(atom_getfloat(av), 50.0, 8000.0);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-static long aureonoise_parse_dichotic_content(t_atom* av)
-{
-  if (!av) return 0;
-  if (atom_gettype(av) == A_SYM) {
-    const char* s = atom_getsym(av)->s_name;
-    return (!std::strcmp(s, "tone")) ? 1 : 0;
-  }
-  long v = atom_getlong(av);
-  if (v < 0) v = 0;
-  if (v > 1) v = 1;
-  return v;
-}
-
-t_max_err set_dichotic_content_match(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_content_match = aureonoise_parse_dichotic_content(av);
-    aureonoise_reset_dichotic_state(x);
-  }
-  return MAX_ERR_NONE;
-}
-
-t_max_err set_dichotic_content_mismatch(t_aureonoise* x, void*, long ac, t_atom* av)
-{
-  if (ac && av) {
-    x->p_dichotic_content_mismatch = aureonoise_parse_dichotic_content(av);
-    aureonoise_reset_dichotic_state(x);
   }
   return MAX_ERR_NONE;
 }
