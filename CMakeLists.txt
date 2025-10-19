@@ -48,13 +48,7 @@ endif()
 file(MAKE_DIRECTORY "${MAX_PACKAGE_DIR}")
 
 # Script del Max SDK: devono essere inclusi PRIMA di creare il target
-set(_max_sdk_pretarget "${MAX_SDK_PATH}/source/max-sdk-base/script/max-pretarget.cmake")
-if(NOT EXISTS "${_max_sdk_pretarget}")
-  message(FATAL_ERROR
-    "Max SDK pre-target script not found at ${_max_sdk_pretarget}. "
-    "Set MAX_SDK_PATH to the root of the extracted Max SDK (the folder that contains source/max-sdk-base).")
-endif()
-include("${_max_sdk_pretarget}")
+include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-pretarget.cmake")
 
 # Core condiviso
 add_library(aureo_core INTERFACE)
@@ -73,33 +67,6 @@ add_library(${C74_TARGET} MODULE
   "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise~/aureonoise_tilde.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/source/aureonoise_attributes.cpp"
 )
-add_library(kbeyond_tilde ALIAS ${C74_TARGET})
-if(NOT DEFINED MAX_SDK_ROOT OR MAX_SDK_ROOT STREQUAL "")
-  if(DEFINED ENV{MAX_SDK_ROOT} AND NOT "$ENV{MAX_SDK_ROOT}" STREQUAL "")
-    set(MAX_SDK_ROOT "$ENV{MAX_SDK_ROOT}")
-  else()
-    set(MAX_SDK_ROOT "${MAX_SDK_PATH}")
-  endif()
-endif()
-
-if(EXISTS "${MAX_SDK_ROOT}/source/max-sdk-base/c74support/max-includes/ext.h")
-  set(C74SUPPORT "${MAX_SDK_ROOT}/source/max-sdk-base/c74support")
-elseif(EXISTS "${MAX_SDK_ROOT}/source/c74support/max-includes/ext.h")
-  set(C74SUPPORT "${MAX_SDK_ROOT}/source/c74support")
-elseif(EXISTS "${MAX_SDK_ROOT}/c74support/max-includes/ext.h")
-  set(C74SUPPORT "${MAX_SDK_ROOT}/c74support")
-else()
-  message(FATAL_ERROR "ext.h non trovato sotto ${MAX_SDK_ROOT}")
-endif()
-
-get_target_property(_kbeyond_alias kbeyond_tilde ALIASED_TARGET)
-if(_kbeyond_alias MATCHES "-NOTFOUND$")
-  target_include_directories(kbeyond_tilde PRIVATE
-    "${C74SUPPORT}/max-includes"
-    "${C74SUPPORT}/msp-includes"
-  )
-endif()
-unset(_kbeyond_alias)
 target_include_directories(${C74_TARGET} PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/source"
   "${CMAKE_CURRENT_LIST_DIR}/source/aureo_core"
@@ -148,13 +115,7 @@ endif()
 
 # Post-target del Max SDK (link a MaxAPI/framework ecc.)
 # DEVE essere incluso DOPO la creazione del target con lo stesso nome di C74_TARGET.
-set(_max_sdk_posttarget "${MAX_SDK_PATH}/source/max-sdk-base/script/max-posttarget.cmake")
-if(NOT EXISTS "${_max_sdk_posttarget}")
-  message(FATAL_ERROR
-    "Max SDK post-target script not found at ${_max_sdk_posttarget}. "
-    "Set MAX_SDK_PATH to the root of the extracted Max SDK (the folder that contains source/max-sdk-base).")
-endif()
-include("${_max_sdk_posttarget}")
+include("${MAX_SDK_PATH}/source/max-sdk-base/script/max-posttarget.cmake")
 
 # --- Firma automatica su macOS ---
 if(APPLE)
