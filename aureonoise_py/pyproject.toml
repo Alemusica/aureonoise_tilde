@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "aureonoise"
+version = "0.1.0"
+description = "aureonoise~ - Generative noise/glitch texture engine based on φ (golden ratio)"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Alessio Ivoyce Cazzaniga" }
+]
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis",
+]
+dependencies = [
+    "numpy>=1.21",
+    "sounddevice>=0.4",
+]
+
+[project.optional-dependencies]
+gui = ["dearpygui>=1.9"]
+dev = ["pytest", "maturin"]
+
+[project.scripts]
+aureonoise = "aureonoise.app:main"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "aureonoise._core"

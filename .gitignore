@@ -38,3 +38,14 @@ Thumbs.db
 
 # Package manager
 node_modules/
+
+# aureonoise_py specific
+aureonoise_py/target/
+aureonoise_py/.pytest_cache/
+aureonoise_py/tests/__pycache__/
+aureonoise_py/python/aureonoise/__pycache__/
+aureonoise_py/*.egg-info/
+aureonoise_py/dist/
+aureonoise_py/Cargo.lock
+*.so
+*.pyd
