@@ -1,0 +1,40 @@
+# Build artifacts
+build/
+*.mxo
+*.mxo64
+*.mxe
+*.mxe64
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# IDE
+.vscode/
+*.xcodeproj/
+*.xcworkspace/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Compiled
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+
+# Debug
+*.dSYM/
+
+# Package manager
+node_modules/
