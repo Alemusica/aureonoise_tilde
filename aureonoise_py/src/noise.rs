@@ -40,6 +40,37 @@ impl GrainKind {
     }
 }
 
+/// Paul Kellet's 6-stage pink noise filter
+/// Produces 1/f spectral slope (±0.5dB) across 20Hz-20kHz
+#[derive(Clone, Debug)]
+pub struct PinkFilter {
+    b: [f64; 7],
+}
+
+impl PinkFilter {
+    pub fn new() -> Self {
+        Self { b: [0.0; 7] }
+    }
+
+    pub fn reset(&mut self) {
+        self.b = [0.0; 7];
+    }
+
+    /// Paul Kellet's refined method: 1/f ±0.5dB over 20Hz-20kHz
+    pub fn process(&mut self, white: f64) -> f64 {
+        self.b[0] = 0.99886 * self.b[0] + white * 0.0555179;
+        self.b[1] = 0.99332 * self.b[1] + white * 0.0750759;
+        self.b[2] = 0.96900 * self.b[2] + white * 0.1538520;
+        self.b[3] = 0.86650 * self.b[3] + white * 0.3104856;
+        self.b[4] = 0.55000 * self.b[4] + white * 0.5329522;
+        self.b[5] = -0.7616 * self.b[5] - white * 0.0168980;
+        let pink = self.b[0] + self.b[1] + self.b[2] + self.b[3]
+                 + self.b[4] + self.b[5] + self.b[6] + white * 0.5362;
+        self.b[6] = white * 0.115926;
+        pink * 0.11  // normalize
+    }
+}
+
 /// Colored noise state
 #[pyclass]
 #[derive(Clone, Debug)]
@@ -48,7 +79,9 @@ pub struct NoiseColorState {
     pub color: NoiseColor,
     /// Amount of coloring (0 = white, 1 = full color)
     pub amount: f64,
-    // Filter states
+    // Pink filter (Kellet 6-stage)
+    pink: PinkFilter,
+    // Brown filter states
     z1: f64,
     z2: f64,
     z3: f64,
@@ -62,6 +95,7 @@ impl NoiseColorState {
         Self {
             color,
             amount: clamp01(amount),
+            pink: PinkFilter::new(),
             z1: 0.0,
             z2: 0.0,
             z3: 0.0,
@@ -70,6 +104,7 @@ impl NoiseColorState {
 
     /// Reset filter states
     pub fn reset(&mut self) {
+        self.pink.reset();
         self.z1 = 0.0;
         self.z2 = 0.0;
         self.z3 = 0.0;
@@ -97,9 +132,8 @@ impl NoiseColorState {
         match self.color {
             NoiseColor::White => w,
             NoiseColor::Pink => {
-                // Simple pink noise approximation
-                self.z1 = (1.0 - 0.02 * amt) * self.z1 + (0.02 * amt) * w;
-                (1.0 - amt) * w + amt * self.z1
+                // Paul Kellet 6-stage: true 1/f ±0.5dB over 20Hz-20kHz
+                (1.0 - amt) * w + amt * self.pink.process(w)
             }
             NoiseColor::Brown => {
                 // Brown noise with resonant character
