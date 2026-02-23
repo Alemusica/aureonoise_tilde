@@ -13,6 +13,7 @@ mod ring;
 mod stoch;
 mod envelope;
 mod grain;
+mod burst;
 
 pub use constants::*;
 pub use rng::Rng;
@@ -23,6 +24,7 @@ pub use ring::RingBuffer;
 pub use stoch::{OrnsteinUhlenbeck, Lattice, Hawkes};
 pub use envelope::{Envelope, EnvelopeShape};
 pub use grain::{Grain, GrainPool};
+pub use burst::{BurstEngine, BurstResult};
 
 /// aureonoise DSP engine parameters
 #[pyclass]
@@ -97,7 +99,11 @@ pub struct Params {
     pub lat_gamma: f64,
     #[pyo3(get, set)]
     pub lat_sigma: f64,
-    
+    #[pyo3(get, set)]
+    pub burst_floor: f64,
+    #[pyo3(get, set)]
+    pub burst_phi_mix: f64,
+
     // System
     #[pyo3(get, set)]
     pub seed: u64,
@@ -153,7 +159,9 @@ impl Default for Params {
             lat_eps: INV_PHI_CU,
             lat_gamma: PHI,
             lat_sigma: 0.06,
-            
+            burst_floor: 0.35,
+            burst_phi_mix: 0.6,
+
             // System
             seed: 20251010,
         }
@@ -176,6 +184,9 @@ pub struct Engine {
     grains: GrainPool,
     envelope: Envelope,
     
+    // Burst position modulation
+    burst_engine: BurstEngine,
+
     // Stochastic
     ou_pan: OrnsteinUhlenbeck,
     ou_itd: OrnsteinUhlenbeck,
@@ -227,6 +238,11 @@ impl Engine {
             ring: RingBuffer::new(),
             grains: GrainPool::new(),
             envelope: Envelope::new(),
+            burst_engine: BurstEngine {
+                enabled: true,  // match Params::default().burst
+                floor: 0.35,
+                phi_mix: 0.6,
+            },
             ou_pan: OrnsteinUhlenbeck::new(0.60, 0.0),
             ou_itd: OrnsteinUhlenbeck::new(0.40, 0.0),
             ou_amp: OrnsteinUhlenbeck::new(0.80, 0.0),
@@ -260,6 +276,9 @@ impl Engine {
         self.lattice.eps = self.params.lat_eps;
         self.lattice.gamma = self.params.lat_gamma;
         self.lattice.sigma = self.params.lat_sigma;
+        self.burst_engine.enabled = self.params.burst;
+        self.burst_engine.floor = self.params.burst_floor;
+        self.burst_engine.phi_mix = self.params.burst_phi_mix;
     }
 
     /// Get current parameters
@@ -278,6 +297,9 @@ impl Engine {
         self.grains.reset_all();
         self.lattice.reset();
         self.hawkes.reset();
+        self.burst_engine.enabled = self.params.burst;
+        self.burst_engine.floor = self.params.burst_floor;
+        self.burst_engine.phi_mix = self.params.burst_phi_mix;
         self.lat_phase = 0.0;
         self.lat_last_v = 0.0;
         self.samples_to_next = (self.sr * 0.05) as i32;
@@ -560,7 +582,24 @@ impl Engine {
         let kexp = (2.0 * u1 - 1.0) * clamp01(self.params.len_phi);
         let len = clamp(base * PHI.powf(kexp), MIN_GRAIN_SAMPLES, self.sr * 4.0);
         grain.dur = len as u32;
-        
+
+        // Burst position modulation (port of beta7_tools burst engine)
+        // dur_norm: normalize by base * PHI (expected long grain)
+        // gap_norm: normalize by expected gap (sr / rate)
+        if self.burst_engine.enabled {
+            let dur_norm = clamp01(len / (base * PHI));
+            let expected_gap = if self.params.rate > 1.0e-6 {
+                self.sr / self.params.rate
+            } else {
+                self.sr * 0.25
+            };
+            let gap_norm = clamp01(gap_samples / expected_gap);
+            let br = self.burst_engine.apply_position(&self.hawkes, pan, dur_norm, gap_norm);
+            pan = br.pan;
+            grain.pan = pan;
+            grain.amp *= br.amp_scale;
+        }
+
         // Binaural
         let (pan_l, pan_r) = pan_equal_power(pan, self.params.width);
         grain.pan_l = pan_l;
