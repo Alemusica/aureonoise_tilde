@@ -14,6 +14,7 @@ mod stoch;
 mod envelope;
 mod grain;
 mod burst;
+mod phi_model;
 
 pub use constants::*;
 pub use rng::Rng;
@@ -25,6 +26,7 @@ pub use stoch::{OrnsteinUhlenbeck, Lattice, Hawkes};
 pub use envelope::{Envelope, EnvelopeShape};
 pub use grain::{Grain, GrainPool};
 pub use burst::{BurstEngine, BurstResult};
+pub use phi_model::PhiModel;
 
 /// aureonoise DSP engine parameters
 #[pyclass]
@@ -747,6 +749,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<GrainPool>()?;
     m.add_class::<Params>()?;
     m.add_class::<Engine>()?;
+    m.add_class::<PhiModel>()?;
     
     // Export constants
     m.add("PHI", PHI)?;
