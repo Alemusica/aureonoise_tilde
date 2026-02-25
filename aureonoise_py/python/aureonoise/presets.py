@@ -32,9 +32,11 @@ class Preset:
     def from_params(cls, name: str, params: Params, description: str = "", author: str = ""):
         """Create from Params object."""
         d = {
+            # Timing
             "rate": params.rate,
             "baselen_ms": params.baselen_ms,
             "len_phi": params.len_phi,
+            # Spatial
             "width": params.width,
             "itd_us": params.itd_us,
             "ild_db": params.ild_db,
@@ -43,10 +45,12 @@ class Preset:
             "spat_min_ms": params.spat_min_ms,
             "spat_ipd": params.spat_ipd,
             "spat_shadow": params.spat_shadow,
+            # Envelope
             "env_attack": params.env_attack,
             "env_decay": params.env_decay,
             "env_sustain": params.env_sustain,
             "env_release": params.env_release,
+            # Timbre
             "noise_color": params.noise_color,
             "color_amt": params.color_amt,
             "vhs_wow": params.vhs_wow,
@@ -54,6 +58,7 @@ class Preset:
             "glitch_mix": params.glitch_mix,
             "srcrush_amt": params.srcrush_amt,
             "bitcrush_amt": params.bitcrush_amt,
+            # Stochastic
             "thermo": params.thermo,
             "lattice": params.lattice,
             "burst": params.burst,
@@ -64,7 +69,37 @@ class Preset:
             "lat_sigma": params.lat_sigma,
             "burst_floor": params.burst_floor,
             "burst_phi_mix": params.burst_phi_mix,
+            # Externalization
             "externalization": params.externalization,
+            # Dialogue
+            "dialogue_on": params.dialogue_on,
+            "dialogue_strength": params.dialogue_strength,
+            "dialogue_memory": params.dialogue_memory,
+            "dialogue_phi_mix": params.dialogue_phi_mix,
+            # Phi-Pan + Bilateral
+            "phi_pan": params.phi_pan,
+            "bilateral_on": params.bilateral_on,
+            "bilateral_rate": params.bilateral_rate,
+            "bilateral_amount": params.bilateral_amount,
+            # Noise (extended modes)
+            "noise_mode": params.noise_mode,
+            "aureo_decay": params.aureo_decay,
+            "aureo_stride": params.aureo_stride,
+            "aureo_harmonics": params.aureo_harmonics,
+            "quantum_detail": params.quantum_detail,
+            "quantum_base": params.quantum_base,
+            "velvet_density": params.velvet_density,
+            # Modal
+            "modal_on": params.modal_on,
+            "modal_mix": params.modal_mix,
+            "modal_decay": params.modal_decay,
+            "modal_preset": params.modal_preset,
+            "modal_mirror": params.modal_mirror,
+            "modal_feedback": params.modal_feedback,
+            # Phi model
+            "phi_distance": params.phi_distance,
+            "phi_elev": params.phi_elev,
+            # System
             "seed": params.seed,
         }
         return cls(name=name, description=description, author=author, params=d)
@@ -293,6 +328,470 @@ class PresetBank:
                 "seed": 20010101,
             }
         )
+
+        # ── Therapeutic presets ──────────────────────────────────────────
+
+        self.presets["EMDR Bilateral"] = Preset(
+            name="EMDR Bilateral",
+            description="L-R alternation for EMDR reprocessing therapy",
+            author="aureonoise",
+            params={
+                # Timing
+                "rate": 8.0,
+                "baselen_ms": 120.0,
+                "len_phi": 0.7,
+                # Spatial
+                "width": 1.0,
+                "itd_us": 600.0,
+                "ild_db": 6.0,
+                "hemis_coupling": 0.90,
+                "spat_min_deg": 12.0,
+                "spat_min_ms": 35.0,
+                "spat_ipd": 0.6,
+                "spat_shadow": 0.7,
+                # Envelope
+                "env_attack": 0.18,
+                "env_decay": 0.28,
+                "env_sustain": 0.55,
+                "env_release": 0.30,
+                # Timbre
+                "noise_color": 1,  # Pink
+                "color_amt": 0.7,
+                "vhs_wow": 0.35,
+                "vhs_flutter": 0.25,
+                "glitch_mix": 0.0,
+                "srcrush_amt": 0.0,
+                "bitcrush_amt": 0.0,
+                # Stochastic
+                "thermo": True,
+                "lattice": True,
+                "burst": False,
+                "temperature": 0.35,
+                "lat_rate": 250.0,
+                "lat_eps": INV_PHI_CU,
+                "lat_gamma": PHI,
+                "lat_sigma": 0.06,
+                "burst_floor": 0.35,
+                "burst_phi_mix": 0.6,
+                # Externalization
+                "externalization": 0.5,
+                # Dialogue
+                "dialogue_on": True,
+                "dialogue_strength": 0.8,
+                "dialogue_memory": 0.6,
+                "dialogue_phi_mix": 0.8,
+                # Phi-Pan + Bilateral
+                "phi_pan": False,
+                "bilateral_on": True,
+                "bilateral_rate": 1.5,
+                "bilateral_amount": 0.85,
+                # Noise modes
+                "noise_mode": 1,  # Pink
+                "aureo_decay": 0.3,
+                "aureo_stride": 1.0,
+                "aureo_harmonics": 12,
+                "quantum_detail": 0.7,
+                "quantum_base": 220.0,
+                "velvet_density": 2000.0,
+                # Modal
+                "modal_on": False,
+                "modal_mix": 0.3,
+                "modal_decay": 0.5,
+                "modal_preset": 0,
+                "modal_mirror": 0.3,
+                "modal_feedback": 0.1,
+                # Phi model
+                "phi_distance": 1.5,
+                "phi_elev": 0.0,
+                # System
+                "seed": 20251010,
+            }
+        )
+
+        self.presets["ASMR Intimate"] = Preset(
+            name="ASMR Intimate",
+            description="Micro-transients with proximity sensation for ASMR",
+            author="aureonoise",
+            params={
+                # Timing
+                "rate": 6.0,
+                "baselen_ms": 200.0,
+                "len_phi": 0.5,
+                # Spatial
+                "width": 0.6,
+                "itd_us": 600.0,
+                "ild_db": 6.0,
+                "hemis_coupling": 0.6,
+                "spat_min_deg": 12.0,
+                "spat_min_ms": 35.0,
+                "spat_ipd": 0.70,
+                "spat_shadow": 0.7,
+                # Envelope
+                "env_attack": 0.25,
+                "env_decay": 0.35,
+                "env_sustain": 0.4,
+                "env_release": 0.4,
+                # Timbre
+                "noise_color": 2,  # Brown
+                "color_amt": 0.8,
+                "vhs_wow": 0.35,
+                "vhs_flutter": 0.25,
+                "glitch_mix": 0.0,
+                "srcrush_amt": 0.0,
+                "bitcrush_amt": 0.0,
+                # Stochastic
+                "thermo": True,
+                "lattice": True,
+                "burst": True,
+                "temperature": 0.25,
+                "lat_rate": 250.0,
+                "lat_eps": INV_PHI_CU,
+                "lat_gamma": PHI,
+                "lat_sigma": 0.06,
+                "burst_floor": 0.2,
+                "burst_phi_mix": 0.7,
+                # Externalization
+                "externalization": 0.1,
+                # Dialogue
+                "dialogue_on": False,
+                "dialogue_strength": 0.6,
+                "dialogue_memory": 0.5,
+                "dialogue_phi_mix": 0.75,
+                # Phi-Pan + Bilateral
+                "phi_pan": False,
+                "bilateral_on": False,
+                "bilateral_rate": 1.0,
+                "bilateral_amount": 0.8,
+                # Noise modes
+                "noise_mode": 2,  # Brown
+                "aureo_decay": 0.3,
+                "aureo_stride": 1.0,
+                "aureo_harmonics": 12,
+                "quantum_detail": 0.7,
+                "quantum_base": 220.0,
+                "velvet_density": 2000.0,
+                # Modal
+                "modal_on": False,
+                "modal_mix": 0.3,
+                "modal_decay": 0.5,
+                "modal_preset": 0,
+                "modal_mirror": 0.3,
+                "modal_feedback": 0.1,
+                # Phi model
+                "phi_distance": 1.5,
+                "phi_elev": 0.0,
+                # System
+                "seed": 20251010,
+            }
+        )
+
+        self.presets["Sleep Pink"] = Preset(
+            name="Sleep Pink",
+            description="Slow-wave sleep promotion with pink noise",
+            author="aureonoise",
+            params={
+                # Timing
+                "rate": 3.0,
+                "baselen_ms": 500.0,
+                "len_phi": 0.4,
+                # Spatial
+                "width": 0.8,
+                "itd_us": 600.0,
+                "ild_db": 6.0,
+                "hemis_coupling": 0.6,
+                "spat_min_deg": 12.0,
+                "spat_min_ms": 35.0,
+                "spat_ipd": 0.6,
+                "spat_shadow": 0.7,
+                # Envelope
+                "env_attack": 0.3,
+                "env_decay": 0.3,
+                "env_sustain": 0.7,
+                "env_release": 0.5,
+                # Timbre
+                "noise_color": 1,  # Pink
+                "color_amt": 0.8,
+                "vhs_wow": 0.35,
+                "vhs_flutter": 0.25,
+                "glitch_mix": 0.0,
+                "srcrush_amt": 0.0,
+                "bitcrush_amt": 0.0,
+                # Stochastic
+                "thermo": True,
+                "lattice": False,
+                "burst": False,
+                "temperature": 0.15,
+                "lat_rate": 250.0,
+                "lat_eps": INV_PHI_CU,
+                "lat_gamma": PHI,
+                "lat_sigma": 0.06,
+                "burst_floor": 0.35,
+                "burst_phi_mix": 0.6,
+                # Externalization
+                "externalization": 0.0,
+                # Dialogue
+                "dialogue_on": False,
+                "dialogue_strength": 0.6,
+                "dialogue_memory": 0.5,
+                "dialogue_phi_mix": 0.75,
+                # Phi-Pan + Bilateral
+                "phi_pan": False,
+                "bilateral_on": False,
+                "bilateral_rate": 1.0,
+                "bilateral_amount": 0.8,
+                # Noise modes
+                "noise_mode": 1,  # Pink
+                "aureo_decay": 0.3,
+                "aureo_stride": 1.0,
+                "aureo_harmonics": 12,
+                "quantum_detail": 0.7,
+                "quantum_base": 220.0,
+                "velvet_density": 2000.0,
+                # Modal
+                "modal_on": False,
+                "modal_mix": 0.3,
+                "modal_decay": 0.5,
+                "modal_preset": 0,
+                "modal_mirror": 0.3,
+                "modal_feedback": 0.1,
+                # Phi model
+                "phi_distance": 1.5,
+                "phi_elev": 0.0,
+                # System
+                "seed": 20251010,
+            }
+        )
+
+        self.presets["Focus Brown"] = Preset(
+            name="Focus Brown",
+            description="Attention and working memory enhancement with brown noise",
+            author="aureonoise",
+            params={
+                # Timing
+                "rate": 10.0,
+                "baselen_ms": 100.0,
+                "len_phi": 0.6,
+                # Spatial
+                "width": 0.9,
+                "itd_us": 600.0,
+                "ild_db": 6.0,
+                "hemis_coupling": 0.6,
+                "spat_min_deg": 12.0,
+                "spat_min_ms": 35.0,
+                "spat_ipd": 0.6,
+                "spat_shadow": 0.7,
+                # Envelope
+                "env_attack": 0.18,
+                "env_decay": 0.28,
+                "env_sustain": 0.55,
+                "env_release": 0.30,
+                # Timbre
+                "noise_color": 2,  # Brown
+                "color_amt": 0.75,
+                "vhs_wow": 0.35,
+                "vhs_flutter": 0.25,
+                "glitch_mix": 0.0,
+                "srcrush_amt": 0.0,
+                "bitcrush_amt": 0.0,
+                # Stochastic
+                "thermo": True,
+                "lattice": True,
+                "burst": False,
+                "temperature": 0.30,
+                "lat_rate": 250.0,
+                "lat_eps": INV_PHI_CU,
+                "lat_gamma": PHI,
+                "lat_sigma": 0.06,
+                "burst_floor": 0.35,
+                "burst_phi_mix": 0.6,
+                # Externalization
+                "externalization": 0.3,
+                # Dialogue
+                "dialogue_on": False,
+                "dialogue_strength": 0.6,
+                "dialogue_memory": 0.5,
+                "dialogue_phi_mix": 0.75,
+                # Phi-Pan + Bilateral
+                "phi_pan": False,
+                "bilateral_on": False,
+                "bilateral_rate": 1.0,
+                "bilateral_amount": 0.8,
+                # Noise modes
+                "noise_mode": 2,  # Brown
+                "aureo_decay": 0.3,
+                "aureo_stride": 1.0,
+                "aureo_harmonics": 12,
+                "quantum_detail": 0.7,
+                "quantum_base": 220.0,
+                "velvet_density": 2000.0,
+                # Modal
+                "modal_on": False,
+                "modal_mix": 0.3,
+                "modal_decay": 0.5,
+                "modal_preset": 0,
+                "modal_mirror": 0.3,
+                "modal_feedback": 0.1,
+                # Phi model
+                "phi_distance": 1.5,
+                "phi_elev": 0.0,
+                # System
+                "seed": 20251010,
+            }
+        )
+
+        self.presets["Theta Drift"] = Preset(
+            name="Theta Drift",
+            description="Bridge EMDR+ASMR with theta-band oscillation",
+            author="aureonoise",
+            params={
+                # Timing
+                "rate": 4.0,
+                "baselen_ms": 250.0,
+                "len_phi": 0.8,
+                # Spatial
+                "width": 1.0,
+                "itd_us": 600.0,
+                "ild_db": 6.0,
+                "hemis_coupling": 0.6,
+                "spat_min_deg": 12.0,
+                "spat_min_ms": 35.0,
+                "spat_ipd": 0.6,
+                "spat_shadow": 0.7,
+                # Envelope
+                "env_attack": 0.18,
+                "env_decay": 0.28,
+                "env_sustain": 0.55,
+                "env_release": 0.30,
+                # Timbre
+                "noise_color": 1,  # Pink
+                "color_amt": 0.7,
+                "vhs_wow": 0.35,
+                "vhs_flutter": 0.25,
+                "glitch_mix": 0.0,
+                "srcrush_amt": 0.0,
+                "bitcrush_amt": 0.0,
+                # Stochastic
+                "thermo": True,
+                "lattice": True,
+                "burst": True,
+                "temperature": 0.35,
+                "lat_rate": 250.0,
+                "lat_eps": INV_PHI_CU,
+                "lat_gamma": PHI,
+                "lat_sigma": 0.06,
+                "burst_floor": 0.3,
+                "burst_phi_mix": 0.65,
+                # Externalization
+                "externalization": 0.2,
+                # Dialogue
+                "dialogue_on": True,
+                "dialogue_strength": 0.5,
+                "dialogue_memory": 0.4,
+                "dialogue_phi_mix": 0.75,
+                # Phi-Pan + Bilateral
+                "phi_pan": True,
+                "bilateral_on": False,
+                "bilateral_rate": 1.0,
+                "bilateral_amount": 0.8,
+                # Noise modes
+                "noise_mode": 1,  # Pink
+                "aureo_decay": 0.3,
+                "aureo_stride": 1.0,
+                "aureo_harmonics": 12,
+                "quantum_detail": 0.7,
+                "quantum_base": 220.0,
+                "velvet_density": 2000.0,
+                # Modal
+                "modal_on": False,
+                "modal_mix": 0.3,
+                "modal_decay": 0.5,
+                "modal_preset": 0,
+                "modal_mirror": 0.3,
+                "modal_feedback": 0.1,
+                # Phi model
+                "phi_distance": 1.5,
+                "phi_elev": 0.0,
+                # System
+                "seed": 20251010,
+            }
+        )
+
+        self.presets["Hemispheric Bridge"] = Preset(
+            name="Hemispheric Bridge",
+            description="Alpha-band bilateral stimulation for corpus callosum synchronization",
+            author="aureonoise",
+            params={
+                # Timing
+                "rate": 8.0,
+                "baselen_ms": 100.0,
+                "len_phi": 0.7,
+                # Spatial
+                "width": 1.0,
+                "itd_us": 600.0,
+                "ild_db": 6.0,
+                "hemis_coupling": 0.85,
+                "spat_min_deg": 12.0,
+                "spat_min_ms": 35.0,
+                "spat_ipd": 0.6,
+                "spat_shadow": 0.7,
+                # Envelope
+                "env_attack": 0.15,
+                "env_decay": 0.25,
+                "env_sustain": 0.6,
+                "env_release": 0.25,
+                # Timbre — Pink (1/f = brain's spectral structure)
+                "noise_color": 1,
+                "color_amt": 0.7,
+                "vhs_wow": 0.35,
+                "vhs_flutter": 0.25,
+                "glitch_mix": 0.0,
+                "srcrush_amt": 0.0,
+                "bitcrush_amt": 0.0,
+                # Stochastic
+                "thermo": True,
+                "lattice": True,
+                "burst": False,
+                "temperature": 0.35,  # peak stochastic resonance
+                "lat_rate": 250.0,
+                "lat_eps": INV_PHI_CU,
+                "lat_gamma": PHI,
+                "lat_sigma": 0.06,
+                "burst_floor": 0.35,
+                "burst_phi_mix": 0.6,
+                # Externalization
+                "externalization": 0.35,
+                # Dialogue (interhemispheric coherence)
+                "dialogue_on": True,
+                "dialogue_strength": 0.7,
+                "dialogue_memory": 0.6,
+                "dialogue_phi_mix": 0.8,
+                # Phi-Pan + Bilateral
+                "phi_pan": False,
+                "bilateral_on": True,
+                "bilateral_rate": 1.0,
+                "bilateral_amount": 0.75,
+                # Noise modes — Pink (1/f)
+                "noise_mode": 1,
+                "aureo_decay": 0.3,
+                "aureo_stride": 1.0,
+                "aureo_harmonics": 12,
+                "quantum_detail": 0.7,
+                "quantum_base": 220.0,
+                "velvet_density": 2000.0,
+                # Modal
+                "modal_on": False,
+                "modal_mix": 0.3,
+                "modal_decay": 0.5,
+                "modal_preset": 0,
+                "modal_mirror": 0.3,
+                "modal_feedback": 0.1,
+                # Phi model
+                "phi_distance": 1.5,
+                "phi_elev": 0.0,
+                # System
+                "seed": 20251010,
+            }
+        )
     
     def list(self) -> List[str]:
         """List all preset names."""
@@ -328,3 +827,15 @@ class PresetBank:
                 self.presets[preset.name] = preset
             except Exception as e:
                 print(f"Failed to load preset {path}: {e}")
+
+
+# ── FACTORY: therapeutic preset names for quick GUI access ─────────
+# Maps display name -> (preset key in PresetBank, button color RGBA)
+FACTORY = {
+    "EMDR Bilateral":    ("EMDR Bilateral",    (70, 130, 210, 255)),   # blue
+    "ASMR Intimate":     ("ASMR Intimate",     (210, 140, 70, 255)),   # warm/orange
+    "Sleep Pink":        ("Sleep Pink",         (80, 70, 160, 255)),    # dark blue/purple
+    "Focus Brown":       ("Focus Brown",        (70, 170, 100, 255)),   # green
+    "Theta Drift":       ("Theta Drift",        (70, 180, 170, 255)),   # teal
+    "Hemispheric Bridge":("Hemispheric Bridge", (200, 170, 70, 255)),   # gold
+}
