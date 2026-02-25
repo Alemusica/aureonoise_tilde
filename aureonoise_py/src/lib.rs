@@ -15,6 +15,7 @@ mod envelope;
 mod grain;
 mod burst;
 mod phi_model;
+mod external;
 
 pub use constants::*;
 pub use rng::Rng;
@@ -27,6 +28,7 @@ pub use envelope::{Envelope, EnvelopeShape};
 pub use grain::{Grain, GrainPool};
 pub use burst::{BurstEngine, BurstResult};
 pub use phi_model::PhiModel;
+pub use external::{ExternalProcessor, ExternalConfig};
 
 /// aureonoise DSP engine parameters
 #[pyclass]
@@ -106,6 +108,10 @@ pub struct Params {
     #[pyo3(get, set)]
     pub burst_phi_mix: f64,
 
+    // Spatial — externalisation
+    #[pyo3(get, set)]
+    pub externalization: f64,
+
     // System
     #[pyo3(get, set)]
     pub seed: u64,
@@ -164,6 +170,9 @@ impl Default for Params {
             burst_floor: 0.35,
             burst_phi_mix: 0.6,
 
+            // Spatial — externalisation
+            externalization: 0.0,
+
             // System
             seed: 20251010,
         }
@@ -188,6 +197,9 @@ pub struct Engine {
     
     // Burst position modulation
     burst_engine: BurstEngine,
+
+    // External externalisation (block-level cross-channel feedback delay)
+    external_proc: ExternalProcessor,
 
     // Stochastic
     ou_pan: OrnsteinUhlenbeck,
@@ -245,6 +257,7 @@ impl Engine {
                 floor: 0.35,
                 phi_mix: 0.6,
             },
+            external_proc: ExternalProcessor::new(),
             ou_pan: OrnsteinUhlenbeck::new(0.60, 0.0),
             ou_itd: OrnsteinUhlenbeck::new(0.40, 0.0),
             ou_amp: OrnsteinUhlenbeck::new(0.80, 0.0),
@@ -302,6 +315,7 @@ impl Engine {
         self.burst_engine.enabled = self.params.burst;
         self.burst_engine.floor = self.params.burst_floor;
         self.burst_engine.phi_mix = self.params.burst_phi_mix;
+        self.external_proc.reset();
         self.lat_phase = 0.0;
         self.lat_last_v = 0.0;
         self.samples_to_next = (self.sr * 0.05) as i32;
@@ -356,7 +370,8 @@ impl Engine {
         let inc_flt = flt_hz / self.sr;
         let lat_inc = clamp(self.params.lat_rate, 1.0, 2000.0) / self.sr;
         let itd_scale = self.params.itd_us * 1.0e-6 * self.sr;
-        
+        let ext_cfg = ExternalProcessor::prepare(self.params.externalization, self.sr);
+
         for n in 0..num_samples {
             // Update counters
             self.gap_elapsed += 1;
@@ -510,6 +525,9 @@ impl Engine {
                 grain.age += 1;
             }
             
+            // External externalisation (block-level cross-channel feedback delay)
+            self.external_proc.process_sample(&ext_cfg, &mut y_l, &mut y_r);
+
             // Soft clip output
             out_l[n] = soft_tanh(y_l * OUT_DRIVE) / OUT_DRIVE;
             out_r[n] = soft_tanh(y_r * OUT_DRIVE) / OUT_DRIVE;

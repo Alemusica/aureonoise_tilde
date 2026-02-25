@@ -62,6 +62,9 @@ class Preset:
             "lat_eps": params.lat_eps,
             "lat_gamma": params.lat_gamma,
             "lat_sigma": params.lat_sigma,
+            "burst_floor": params.burst_floor,
+            "burst_phi_mix": params.burst_phi_mix,
+            "externalization": params.externalization,
             "seed": params.seed,
         }
         return cls(name=name, description=description, author=author, params=d)
