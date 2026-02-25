@@ -24,7 +24,7 @@ pub use constants::*;
 pub use rng::Rng;
 pub use weyl::Weyl;
 pub use math::*;
-pub use noise::{NoiseColor, NoiseColorState, GrainKind};
+pub use noise::{NoiseColor, NoiseColorState, NoiseGen, NoiseMode, GrainKind};
 pub use ring::RingBuffer;
 pub use stoch::{OrnsteinUhlenbeck, Lattice, Hawkes};
 pub use envelope::{Envelope, EnvelopeShape};
@@ -32,6 +32,8 @@ pub use grain::{Grain, GrainPool};
 pub use burst::{BurstEngine, BurstResult};
 pub use phi_model::PhiModel;
 pub use external::{ExternalProcessor, ExternalConfig};
+pub use dialogue::{DialogueSystem, DialogueParams, PhiPan, BilateralOscillator};
+pub use modal::{ModalEngine, ModalPreset};
 
 /// aureonoise DSP engine parameters
 #[pyclass]
@@ -115,6 +117,62 @@ pub struct Params {
     #[pyo3(get, set)]
     pub externalization: f64,
 
+    // Dialogue (interhemispheric coherence)
+    #[pyo3(get, set)]
+    pub dialogue_on: bool,
+    #[pyo3(get, set)]
+    pub dialogue_strength: f64,
+    #[pyo3(get, set)]
+    pub dialogue_memory: f64,
+    #[pyo3(get, set)]
+    pub dialogue_phi_mix: f64,
+
+    // Phi-Pan + Bilateral
+    #[pyo3(get, set)]
+    pub phi_pan: bool,
+    #[pyo3(get, set)]
+    pub bilateral_on: bool,
+    #[pyo3(get, set)]
+    pub bilateral_rate: f64,
+    #[pyo3(get, set)]
+    pub bilateral_amount: f64,
+
+    // Noise (extended modes 0-5)
+    #[pyo3(get, set)]
+    pub noise_mode: i32,
+    #[pyo3(get, set)]
+    pub aureo_decay: f64,
+    #[pyo3(get, set)]
+    pub aureo_stride: f64,
+    #[pyo3(get, set)]
+    pub aureo_harmonics: i32,
+    #[pyo3(get, set)]
+    pub quantum_detail: f64,
+    #[pyo3(get, set)]
+    pub quantum_base: f64,
+    #[pyo3(get, set)]
+    pub velvet_density: f64,
+
+    // Modal resonator
+    #[pyo3(get, set)]
+    pub modal_on: bool,
+    #[pyo3(get, set)]
+    pub modal_mix: f64,
+    #[pyo3(get, set)]
+    pub modal_decay: f64,
+    #[pyo3(get, set)]
+    pub modal_preset: i32,
+    #[pyo3(get, set)]
+    pub modal_mirror: f64,
+    #[pyo3(get, set)]
+    pub modal_feedback: f64,
+
+    // Phi model (expose for GUI)
+    #[pyo3(get, set)]
+    pub phi_distance: f64,
+    #[pyo3(get, set)]
+    pub phi_elev: f64,
+
     // System
     #[pyo3(get, set)]
     pub seed: u64,
@@ -176,6 +234,39 @@ impl Default for Params {
             // Spatial — externalisation
             externalization: 0.0,
 
+            // Dialogue
+            dialogue_on: true,
+            dialogue_strength: 0.6,
+            dialogue_memory: 0.5,
+            dialogue_phi_mix: 0.75,
+
+            // Phi-Pan + Bilateral
+            phi_pan: false,
+            bilateral_on: false,
+            bilateral_rate: 1.0,
+            bilateral_amount: 0.8,
+
+            // Noise (extended modes)
+            noise_mode: 1,  // Pink
+            aureo_decay: 0.3,
+            aureo_stride: 1.0,
+            aureo_harmonics: 12,
+            quantum_detail: 0.7,
+            quantum_base: 220.0,
+            velvet_density: 2000.0,
+
+            // Modal
+            modal_on: false,
+            modal_mix: 0.3,
+            modal_decay: 0.5,
+            modal_preset: 1, // Wood
+            modal_mirror: 0.3,
+            modal_feedback: 0.1,
+
+            // Phi model
+            phi_distance: 1.5,
+            phi_elev: 0.0,
+
             // System
             seed: 20251010,
         }
@@ -187,22 +278,30 @@ impl Default for Params {
 pub struct Engine {
     params: Params,
     sr: f64,
-    
+
     // State
     rng: Rng,
     w_phi: Weyl,
     w_s2: Weyl,
     w_pl: Weyl,
-    noise: NoiseColorState,
+    noise_gen: NoiseGen,
     ring: RingBuffer,
     grains: GrainPool,
     envelope: Envelope,
-    
+
     // Burst position modulation
     burst_engine: BurstEngine,
 
     // External externalisation (block-level cross-channel feedback delay)
     external_proc: ExternalProcessor,
+
+    // Dialogue (interhemispheric coherence)
+    dialogue: DialogueSystem,
+    phi_pan_proc: PhiPan,
+    bilateral: BilateralOscillator,
+
+    // Modal resonator
+    modal_engine: ModalEngine,
 
     // Stochastic
     ou_pan: OrnsteinUhlenbeck,
@@ -213,16 +312,16 @@ pub struct Engine {
     hawkes: Hawkes,
     lat_phase: f64,
     lat_last_v: f64,
-    
+
     // Scheduling
     samples_to_next: i32,
     gap_elapsed: i32,
     sample_counter: u64,
-    
+
     // LFO
     lfo_wow_phase: f64,
     lfo_flut_phase: f64,
-    
+
     // Previous grain state (for hemisphere coupling)
     prev_pan: f64,
     prev_itd: f64,
@@ -244,6 +343,13 @@ impl Engine {
         let w_s2 = Weyl::phi_sq(rng.uni01());
         let w_pl = Weyl::phi_cu(rng.uni01());
         
+        let mut noise_gen = NoiseGen::new(NoiseMode::Pink);
+        noise_gen.classic.set_amount(params.color_amt);
+
+        let mut modal_engine = ModalEngine::new(sr);
+        modal_engine.set_preset(ModalPreset::from_i32(params.modal_preset));
+        modal_engine.set_active(params.modal_on);
+
         Self {
             params,
             sr,
@@ -251,16 +357,20 @@ impl Engine {
             w_phi,
             w_s2,
             w_pl,
-            noise: NoiseColorState::default(),
+            noise_gen,
             ring: RingBuffer::new(),
             grains: GrainPool::new(),
             envelope: Envelope::new(),
             burst_engine: BurstEngine {
-                enabled: true,  // match Params::default().burst
+                enabled: true,
                 floor: 0.35,
                 phi_mix: 0.6,
             },
             external_proc: ExternalProcessor::new(),
+            dialogue: DialogueSystem::new(),
+            phi_pan_proc: PhiPan::new(),
+            bilateral: BilateralOscillator::new(),
+            modal_engine,
             ou_pan: OrnsteinUhlenbeck::new(0.60, 0.0),
             ou_itd: OrnsteinUhlenbeck::new(0.40, 0.0),
             ou_amp: OrnsteinUhlenbeck::new(0.80, 0.0),
@@ -285,18 +395,51 @@ impl Engine {
     /// Set parameters
     pub fn set_params(&mut self, params: Params) {
         self.params = params;
-        self.noise.set_color(match self.params.noise_color {
-            0 => NoiseColor::White,
-            2 => NoiseColor::Brown,
-            _ => NoiseColor::Pink,
-        });
-        self.noise.set_amount(self.params.color_amt);
+
+        // Noise — use noise_mode (0-5) with fallback to noise_color (0-2)
+        let mode = if self.params.noise_mode >= 0 && self.params.noise_mode <= 5 {
+            self.params.noise_mode
+        } else {
+            self.params.noise_color.clamp(0, 2)
+        };
+        let nm = match mode {
+            0 => NoiseMode::White,
+            2 => NoiseMode::Brown,
+            3 => NoiseMode::Aureo,
+            4 => NoiseMode::Quantum,
+            5 => NoiseMode::Velvet,
+            _ => NoiseMode::Pink,
+        };
+        self.noise_gen.set_mode(nm);
+        self.noise_gen.classic.set_amount(self.params.color_amt);
+        self.noise_gen.set_aureo_decay(self.params.aureo_decay);
+        self.noise_gen.set_aureo_stride(self.params.aureo_stride);
+        self.noise_gen.set_aureo_harmonics(self.params.aureo_harmonics);
+        self.noise_gen.set_quantum_detail(self.params.quantum_detail);
+        self.noise_gen.set_quantum_base(self.params.quantum_base);
+        self.noise_gen.set_velvet_density(self.params.velvet_density);
+
+        // Lattice
         self.lattice.eps = self.params.lat_eps;
         self.lattice.gamma = self.params.lat_gamma;
         self.lattice.sigma = self.params.lat_sigma;
+
+        // Burst
         self.burst_engine.enabled = self.params.burst;
         self.burst_engine.floor = self.params.burst_floor;
         self.burst_engine.phi_mix = self.params.burst_phi_mix;
+
+        // Bilateral oscillator
+        self.bilateral.set_rate(self.params.bilateral_rate);
+        self.bilateral.set_amount(self.params.bilateral_amount);
+
+        // Modal
+        self.modal_engine.set_preset(ModalPreset::from_i32(self.params.modal_preset));
+        self.modal_engine.set_active(self.params.modal_on);
+        self.modal_engine.set_mix(self.params.modal_mix);
+        self.modal_engine.set_decay_scale(self.params.modal_decay);
+        self.modal_engine.set_mirror(self.params.modal_mirror);
+        self.modal_engine.set_feedback(self.params.modal_feedback);
     }
 
     /// Get current parameters
@@ -310,7 +453,7 @@ impl Engine {
         self.w_phi = Weyl::phi(self.rng.uni01());
         self.w_s2 = Weyl::phi_sq(self.rng.uni01());
         self.w_pl = Weyl::phi_cu(self.rng.uni01());
-        self.noise.reset();
+        self.noise_gen.reset();
         self.ring.clear();
         self.grains.reset_all();
         self.lattice.reset();
@@ -319,6 +462,10 @@ impl Engine {
         self.burst_engine.floor = self.params.burst_floor;
         self.burst_engine.phi_mix = self.params.burst_phi_mix;
         self.external_proc.reset();
+        self.dialogue.reset();
+        self.phi_pan_proc.reset();
+        self.bilateral.reset();
+        self.modal_engine.reset();
         self.lat_phase = 0.0;
         self.lat_last_v = 0.0;
         self.samples_to_next = (self.sr * 0.05) as i32;
@@ -331,6 +478,26 @@ impl Engine {
         self.prev_ild = 0.0;
         self.last_gap_samples = 0.0;
         self.last_dur_samples = 0.0;
+    }
+
+    /// Get current coherence level from the dialogue system (for GUI)
+    pub fn coherence(&self) -> f64 {
+        self.dialogue.coherence()
+    }
+
+    /// Get handshake count from dialogue system
+    pub fn handshake_count(&self) -> u64 {
+        self.dialogue.handshake_count()
+    }
+
+    /// Get handshake ratio (handshakes / utterances)
+    pub fn handshake_ratio(&self) -> f64 {
+        self.dialogue.handshake_ratio()
+    }
+
+    /// Get mean coherence across all utterances
+    pub fn coherence_mean(&self) -> f64 {
+        self.dialogue.coherence_mean()
     }
 
     /// Process a block of samples, returns (left, right) arrays
@@ -358,6 +525,7 @@ impl Engine {
     /// Set sample rate
     pub fn set_sample_rate(&mut self, sr: f64) {
         self.sr = if sr > 0.0 { sr } else { 44100.0 };
+        self.modal_engine.set_sr(self.sr);
     }
 }
 
@@ -422,8 +590,8 @@ impl Engine {
                 }
             }
             
-            // Generate and write noise to ring buffer
-            let mut nz = self.noise.process(&mut self.rng);
+            // Generate and write noise to ring buffer (dispatches to all 6 modes)
+            let mut nz = self.noise_gen.next_sample(&mut self.rng, self.sr);
             nz = soft_tanh(nz * 1.2);
             self.ring.write(nz);
             let wi = self.ring.get_write_index();
@@ -528,6 +696,13 @@ impl Engine {
                 grain.age += 1;
             }
             
+            // Modal resonator (post grain-sum, pre external)
+            if self.params.modal_on {
+                let (ml, mr) = self.modal_engine.process(y_l, y_r);
+                y_l = ml;
+                y_r = mr;
+            }
+
             // External externalisation (block-level cross-channel feedback delay)
             self.external_proc.process_sample(&ext_cfg, &mut y_l, &mut y_r);
 
@@ -621,6 +796,39 @@ impl Engine {
             pan = br.pan;
             grain.pan = pan;
             grain.amp *= br.amp_scale;
+        }
+
+        // --- Dialogue evaluation (interhemispheric coherence) ---
+        let dialogue_params = DialogueParams {
+            strength: self.params.dialogue_strength,
+            memory: self.params.dialogue_memory,
+            phi_mix: self.params.dialogue_phi_mix,
+            enabled: self.params.dialogue_on,
+        };
+        let dial_result = self.dialogue.evaluate(
+            &dialogue_params, pan, grain.amp, len, gap_samples,
+        );
+        // Apply dialogue corrections
+        if self.params.dialogue_on {
+            pan = dial_result.pan;
+            grain.pan = pan;
+            grain.amp *= dial_result.amp_scale;
+            let new_len = clamp(len * dial_result.dur_scale, MIN_GRAIN_SAMPLES, self.sr * 4.0);
+            grain.dur = new_len as u32;
+        }
+        // Commit the result
+        self.dialogue.commit(&dialogue_params, &dial_result, true);
+
+        // --- Phi-Pan (phi-ratio alternation) ---
+        if self.params.phi_pan {
+            pan = self.phi_pan_proc.next(pan);
+            grain.pan = pan;
+        }
+
+        // --- Bilateral oscillator (EMDR-style deterministic L-R sweep) ---
+        if self.params.bilateral_on {
+            pan = self.bilateral.apply(pan, self.sr);
+            grain.pan = pan;
         }
 
         // Binaural
@@ -759,6 +967,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Weyl>()?;
     m.add_class::<NoiseColor>()?;
     m.add_class::<NoiseColorState>()?;
+    m.add_class::<NoiseMode>()?;
+    m.add_class::<NoiseGen>()?;
     m.add_class::<GrainKind>()?;
     m.add_class::<RingBuffer>()?;
     m.add_class::<OrnsteinUhlenbeck>()?;
@@ -771,7 +981,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Params>()?;
     m.add_class::<Engine>()?;
     m.add_class::<PhiModel>()?;
-    
+
     // Export constants
     m.add("PHI", PHI)?;
     m.add("INV_PHI", INV_PHI)?;
@@ -780,6 +990,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("INV_PHI_CU", INV_PHI_CU)?;
     m.add("MAX_GRAINS", MAX_GRAINS)?;
     m.add("RING_SIZE", RING_SIZE)?;
-    
+
     Ok(())
 }

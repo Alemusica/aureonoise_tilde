@@ -598,6 +598,22 @@ impl PhiModel {
 }
 
 // ---------------------------------------------------------------------------
+// Air absorption
+// ---------------------------------------------------------------------------
+
+/// Compute frequency-dependent air absorption coefficient (dB/m).
+/// Based on ISO 9613-1 simplified model.
+/// Returns attenuation factor (linear) for a given frequency and distance.
+#[inline]
+pub fn compute_air_absorption(freq_hz: f64, distance_m: f64) -> f64 {
+    let f_khz = freq_hz * 0.001;
+    let alpha_db_per_m = 0.0002 + 0.0002 * f_khz + 0.0006 * f_khz * f_khz;
+    let atten_db = alpha_db_per_m * distance_m;
+    // Convert dB attenuation to linear gain
+    10.0_f64.powf(-atten_db / 20.0)
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests (Rust side)
 // ---------------------------------------------------------------------------
 
