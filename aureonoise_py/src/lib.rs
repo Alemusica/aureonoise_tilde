@@ -15,7 +15,10 @@ mod envelope;
 mod grain;
 mod burst;
 mod phi_model;
+mod phit;
 mod external;
+mod modal;
+mod dialogue;
 
 pub use constants::*;
 pub use rng::Rng;
