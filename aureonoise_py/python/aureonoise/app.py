@@ -13,6 +13,11 @@ try:
 except ImportError:
     dpg = None
 
+try:
+    import sounddevice as sd
+except ImportError:
+    sd = None
+
 from aureonoise import Params, PHI, INV_PHI, INV_PHI_SQ, INV_PHI_CU
 from aureonoise.audio import AudioEngine
 from aureonoise.presets import PresetBank, FACTORY
@@ -156,10 +161,12 @@ class AureonoiseApp:
                     dpg.add_text("Phi-Pan + Bilateral", color=COLORS["section"])
                     dpg.add_checkbox(
                         label="Phi-Pan", default_value=False,
-                        callback=lambda s, a: self._set_param("phi_pan", a))
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="phi_pan")
                     dpg.add_checkbox(
                         label="Bilateral On", default_value=False, tag="cb_bilateral_on",
-                        callback=lambda s, a: self._set_param("bilateral_on", a))
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="bilateral_on")
                     self._slider("bilateral_rate", "Bilateral Rate (Hz)", 0.5, 2.0, 1.0)
                     self._slider("bilateral_amount", "Bilateral Amount", 0.0, 1.0, 0.8)
 
@@ -178,7 +185,7 @@ class AureonoiseApp:
                         ["White", "Pink", "Brown"],
                         default_value="Pink",
                         label="Noise Color",
-                        callback=lambda s, a: self._set_param("noise_color",
+                        callback=lambda s, a, u: self._set_param("noise_color",
                             {"White": 0, "Pink": 1, "Brown": 2}.get(a, 1)),
                         width=150,
                     )
@@ -233,7 +240,8 @@ class AureonoiseApp:
                     dpg.add_text("Interhemispheric Coherence", color=COLORS["section"])
                     dpg.add_checkbox(
                         label="Dialogue On", default_value=True, tag="cb_dialogue_on",
-                        callback=lambda s, a: self._set_param("dialogue_on", a))
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="dialogue_on")
                     dpg.add_spacer(height=5)
                     self._slider("dialogue_strength", "Strength", 0.0, 1.0, 0.6)
                     self._slider("dialogue_memory", "Memory", 0.0, 1.0, 0.5)
@@ -268,14 +276,15 @@ class AureonoiseApp:
                     dpg.add_text("Modal Resonator", color=COLORS["section"])
                     dpg.add_checkbox(
                         label="Modal On", default_value=False, tag="cb_modal_on",
-                        callback=lambda s, a: self._set_param("modal_on", a))
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="modal_on")
                     dpg.add_spacer(height=5)
                     dpg.add_combo(
                         MODAL_PRESETS,
                         default_value="Wood",
                         label="Preset",
                         tag="combo_modal_preset",
-                        callback=lambda s, a: self._set_param("modal_preset",
+                        callback=lambda s, a, u: self._set_param("modal_preset",
                             MODAL_PRESETS.index(a)),
                         width=150,
                     )
@@ -290,11 +299,14 @@ class AureonoiseApp:
                     dpg.add_spacer(height=5)
                     with dpg.group(horizontal=True):
                         dpg.add_checkbox(label="Thermo", default_value=True,
-                            callback=lambda s, a: self._set_param("thermo", a))
+                            callback=lambda s, a, u: self._set_param(u, a),
+                            user_data="thermo")
                         dpg.add_checkbox(label="Lattice", default_value=True,
-                            callback=lambda s, a: self._set_param("lattice", a))
+                            callback=lambda s, a, u: self._set_param(u, a),
+                            user_data="lattice")
                         dpg.add_checkbox(label="Burst", default_value=True,
-                            callback=lambda s, a: self._set_param("burst", a))
+                            callback=lambda s, a, u: self._set_param(u, a),
+                            user_data="burst")
                     dpg.add_separator()
                     self._slider("temperature", "Temperature", 0.0, 1.0, 0.45)
                     self._slider("lat_rate", "Lattice Rate", 1.0, 2000.0, 250.0, log=True)
@@ -335,10 +347,39 @@ class AureonoiseApp:
                 # ── System tab ──────────────────────────────────────
                 with dpg.tab(label="System"):
                     dpg.add_spacer(height=5)
+
+                    # Audio device selector
+                    dpg.add_text("Audio Output", color=COLORS["section"])
+                    self._output_devices = self._get_output_devices()
+                    device_labels = [f"{idx}: {name}" for idx, name in self._output_devices]
+                    default_dev = sd.default.device[1] if sd else 0
+                    default_label = ""
+                    for idx, name in self._output_devices:
+                        if idx == default_dev:
+                            default_label = f"{idx}: {name}"
+                            break
+                    if not default_label and device_labels:
+                        default_label = device_labels[0]
+                    dpg.add_combo(
+                        device_labels,
+                        default_value=default_label,
+                        label="Output Device",
+                        tag="combo_audio_device",
+                        callback=self._on_device_change,
+                        width=350,
+                    )
+                    dpg.add_text(
+                        "Change device while stopped for best results.",
+                        color=COLORS["text_dim"], wrap=520)
+                    dpg.add_spacer(height=10)
+                    dpg.add_separator()
+
+                    dpg.add_spacer(height=5)
                     dpg.add_input_int(
                         label="Seed",
                         default_value=20251010,
-                        callback=lambda s, a: self._set_param("seed", a),
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="seed",
                         width=150,
                     )
                     dpg.add_spacer(height=10)
@@ -382,12 +423,11 @@ class AureonoiseApp:
         fmt = "%.3f" if vmax <= 2.0 else "%.1f"
 
         if log:
-            # Logarithmic slider
-            def callback(sender, app_data, _param=param, _vmin=vmin, _vmax=vmax):
-                t = app_data
-                v = _vmin * ((_vmax / _vmin) ** t)
-                self._set_param(_param, v)
-                dpg.set_value(f"val_{_param}", f"{v:.2f}")
+            def log_cb(sender, app_data, user_data):
+                p, lo, hi = user_data
+                v = lo * ((hi / lo) ** app_data)
+                self._set_param(p, v)
+                dpg.set_value(f"val_{p}", f"{v:.2f}")
 
             with dpg.group(horizontal=True):
                 dpg.add_slider_float(
@@ -396,14 +436,15 @@ class AureonoiseApp:
                     default_value=0.5,
                     min_value=0.0,
                     max_value=1.0,
-                    callback=callback,
+                    callback=log_cb,
+                    user_data=(param, vmin, vmax),
                     width=200,
                 )
                 dpg.add_text(f"{default:.2f}", tag=f"val_{param}", color=COLORS["text_dim"])
                 dpg.add_text(label, color=COLORS["text"])
         else:
-            def callback(sender, app_data, _param=param):
-                self._set_param(_param, app_data)
+            def lin_cb(sender, app_data, user_data):
+                self._set_param(user_data, app_data)
 
             dpg.add_slider_float(
                 tag=f"sl_{param}",
@@ -411,7 +452,8 @@ class AureonoiseApp:
                 default_value=default,
                 min_value=vmin,
                 max_value=vmax,
-                callback=callback,
+                callback=lin_cb,
+                user_data=param,
                 format=fmt,
                 width=200,
             )
@@ -419,8 +461,8 @@ class AureonoiseApp:
     def _slider_int(self, param: str, label: str, vmin: int, vmax: int,
                     default: int):
         """Create an integer parameter slider."""
-        def callback(sender, app_data, _param=param):
-            self._set_param(_param, int(app_data))
+        def int_cb(sender, app_data, user_data):
+            self._set_param(user_data, int(app_data))
 
         dpg.add_slider_int(
             tag=f"sl_{param}",
@@ -428,7 +470,8 @@ class AureonoiseApp:
             default_value=default,
             min_value=vmin,
             max_value=vmax,
-            callback=callback,
+            callback=int_cb,
+            user_data=param,
             width=200,
         )
 
@@ -514,6 +557,34 @@ class AureonoiseApp:
         mp = params.get("modal_preset", 1)
         if 0 <= mp < len(MODAL_PRESETS):
             _safe_set("combo_modal_preset", MODAL_PRESETS[mp])
+
+    # ── Audio device ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _get_output_devices():
+        """Return list of (index, name) for output-capable devices."""
+        if sd is None:
+            return []
+        devices = sd.query_devices()
+        return [
+            (i, d["name"])
+            for i, d in enumerate(devices)
+            if d["max_output_channels"] > 0
+        ]
+
+    def _on_device_change(self, sender, app_data):
+        """Handle audio device combo change."""
+        try:
+            dev_idx = int(app_data.split(":")[0])
+        except (ValueError, IndexError):
+            return
+        was_running = self.audio.is_running()
+        if was_running:
+            self.audio.stop()
+        self.audio.output_device = dev_idx
+        if was_running:
+            self.audio.start()
+            dpg.set_value("status", "Playing")
 
     # ── Transport ───────────────────────────────────────────────────
 

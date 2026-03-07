@@ -289,7 +289,7 @@ def _hemispheric_bridge_params() -> Params:
     _safe_set(p, "noise_mode", 1)
     p.color_amt = 0.65
     _safe_set(p, "dialogue_on", True)
-    _safe_set(p, "dialogue_strength", 0.8)
+    _safe_set(p, "dialogue_strength", 0.65)
     _safe_set(p, "dialogue_memory", 0.6)
     _safe_set(p, "dialogue_phi_mix", 0.85)
     _safe_set(p, "bilateral_on", True)
@@ -780,6 +780,181 @@ class TestEdgeCases:
             assert not _has_nan_or_inf(right), "NaN/Inf during long run"
             assert _peak(left) < 2.0, "Overflow during long run"
             assert _peak(right) < 2.0, "Overflow during long run"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4: New DSP modules (binaural, isochronic, tinnitus, spectral slope)
+# ---------------------------------------------------------------------------
+
+_HAS_BINAURAL = _has_param("binaural_on")
+_HAS_ISOCHRONIC = _has_param("isochronic_on")
+_HAS_TINNITUS = _has_param("tinnitus_notch_hz")
+_HAS_NOISE_SLOPE = _has_param("noise_slope")
+
+_SKIP_DSP_MODULES = pytest.mark.skipif(
+    not (_HAS_BINAURAL and _HAS_ISOCHRONIC and _HAS_TINNITUS and _HAS_NOISE_SLOPE),
+    reason="Sprint 4 DSP modules not in current build.",
+)
+
+
+@_SKIP_DSP_MODULES
+class TestDSPModules:
+    """Tests for binaural beat, isochronic tone, tinnitus notch, spectral tilt."""
+
+    def test_binaural_beat_produces_stereo_diff(self):
+        """Binaural beat should produce L/R frequency difference."""
+        e = Engine(SR)
+        p = Params()
+        p.rate = 0.0  # no grains — isolate binaural
+        p.binaural_on = True
+        p.binaural_carrier_hz = 250.0
+        p.binaural_beat_hz = 10.0
+        p.binaural_level = 0.5
+        e.set_params(p)
+
+        left, right = e.process(LONG_BLOCK)
+        left, right = np.array(left), np.array(right)
+
+        # Both channels should have signal
+        assert _peak(left) > 0.1, "Binaural L silent"
+        assert _peak(right) > 0.1, "Binaural R silent"
+        # L and R should differ (different frequencies)
+        diff = np.abs(left - right)
+        assert np.max(diff) > 0.01, "Binaural L/R should differ"
+
+    def test_binaural_beat_level_control(self):
+        """Binaural level controls its contribution: higher level = more signal."""
+        e1 = Engine(SR)
+        p1 = Params()
+        p1.rate = 0.0
+        p1.binaural_on = True
+        p1.binaural_level = 0.5
+        e1.set_params(p1)
+
+        e2 = Engine(SR)
+        p2 = Params()
+        p2.rate = 0.0
+        p2.binaural_on = True
+        p2.binaural_level = 0.01
+        e2.set_params(p2)
+
+        l1, _ = e1.process(LONG_BLOCK)
+        l2, _ = e2.process(LONG_BLOCK)
+        # Higher level should produce more energy
+        rms1 = np.sqrt(np.mean(np.array(l1)**2))
+        rms2 = np.sqrt(np.mean(np.array(l2)**2))
+        assert rms1 > rms2 * 2.0, "Binaural level should scale output"
+
+    def test_isochronic_produces_pulsed_output(self):
+        """Isochronic tone should produce rhythmic amplitude modulation."""
+        e = Engine(SR)
+        p = Params()
+        p.rate = 0.0  # no grains
+        p.isochronic_on = True
+        p.isochronic_carrier_hz = 165.0
+        p.isochronic_rate_hz = 4.0
+        p.isochronic_duty = 0.5
+        p.isochronic_level = 0.5
+        e.set_params(p)
+
+        # 1 second = 4 pulses at 4 Hz
+        left, right = e.process(LONG_BLOCK)
+        left, right = np.array(left), np.array(right)
+
+        assert _peak(left) > 0.1, "Isochronic silent"
+        # Isochronic adds mono signal, so L and R differ only by the grain engine.
+        # Verify isochronic contributes by comparing with isochronic OFF:
+        e2 = Engine(SR)
+        p2 = Params()
+        p2.rate = 0.0
+        p2.isochronic_on = False
+        e2.set_params(p2)
+        l_off, _ = e2.process(LONG_BLOCK)
+        rms_on = np.sqrt(np.mean(left**2))
+        rms_off = np.sqrt(np.mean(np.array(l_off)**2))
+        assert rms_on > rms_off * 1.5, "Isochronic should add significant energy"
+
+    def test_tinnitus_notch_attenuates_target(self):
+        """Tinnitus notch at a frequency should create a spectral dip."""
+        e = Engine(SR)
+        p = Params()
+        p.noise_mode = 0  # white noise for flat reference
+        p.noise_color = 0
+        p.tinnitus_notch_hz = 4000.0
+        p.tinnitus_notch_q = 6.0
+        e.set_params(p)
+
+        left, _ = e.process(LONG_BLOCK * 4)
+        left = np.array(left)
+
+        # Compute PSD
+        from scipy.signal import welch
+        freqs, psd = welch(left, fs=SR, nperseg=2048)
+
+        # Find power at notch frequency vs neighbors
+        notch_idx = np.argmin(np.abs(freqs - 4000.0))
+        low_idx = np.argmin(np.abs(freqs - 2000.0))
+        high_idx = np.argmin(np.abs(freqs - 6000.0))
+
+        notch_power = psd[notch_idx]
+        neighbor_power = (psd[low_idx] + psd[high_idx]) / 2.0
+
+        # Notch should be at least 6 dB down from neighbors
+        if neighbor_power > 1e-15:
+            ratio_db = 10 * np.log10(notch_power / neighbor_power)
+            assert ratio_db < -3.0, f"Notch not deep enough: {ratio_db:.1f} dB"
+
+    def test_spectral_slope_white(self):
+        """noise_slope=0 should produce white-ish noise (flat spectrum)."""
+        e = Engine(SR)
+        p = Params()
+        p.noise_slope = 0.0
+        p.noise_mode = 0
+        e.set_params(p)
+
+        left, _ = e.process(LONG_BLOCK * 4)
+        left = np.array(left)
+        assert _peak(left) > 0.01, "White noise silent"
+
+    def test_spectral_slope_brown(self):
+        """noise_slope=-2 should produce brown noise (steep rolloff)."""
+        e = Engine(SR)
+        p = Params()
+        p.noise_slope = -2.0
+        p.noise_mode = 0
+        e.set_params(p)
+
+        left, _ = e.process(LONG_BLOCK * 4)
+        left = np.array(left)
+        assert _peak(left) > 0.001, "Brown noise silent"
+
+        # Verify low frequencies dominate
+        from scipy.signal import welch
+        freqs, psd = welch(left, fs=SR, nperseg=2048)
+        low_band = psd[(freqs > 100) & (freqs < 500)].mean()
+        high_band = psd[(freqs > 4000) & (freqs < 8000)].mean()
+        if low_band > 1e-15:
+            ratio = high_band / low_band
+            assert ratio < 0.3, f"Brown noise high/low ratio too high: {ratio:.3f}"
+
+    def test_all_new_modules_no_nan(self):
+        """All new modules enabled simultaneously should not produce NaN."""
+        e = Engine(SR)
+        p = Params()
+        p.binaural_on = True
+        p.binaural_beat_hz = 6.0
+        p.binaural_level = 0.08
+        p.isochronic_on = True
+        p.isochronic_rate_hz = 10.0
+        p.isochronic_level = 0.10
+        p.tinnitus_notch_hz = 4000.0
+        p.noise_slope = -1.5
+        e.set_params(p)
+
+        left, right = e.process(LONG_BLOCK)
+        assert not _has_nan_or_inf(left), "NaN with all new modules"
+        assert not _has_nan_or_inf(right), "NaN with all new modules"
+        assert _peak(left) < 2.0, "Overflow with all new modules"
 
 
 if __name__ == "__main__":

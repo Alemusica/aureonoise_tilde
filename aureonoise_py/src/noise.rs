@@ -178,6 +178,70 @@ impl Default for NoiseColorState {
     }
 }
 
+// ─── Continuous spectral tilt ────────────────────────────────────────────────
+
+/// Continuous spectral slope filter.
+/// noise_slope: 0.0=White, -1.0=Pink, -2.0=Brown (continuous interpolation).
+/// Extends to +0.5 (brightened white) via gentle highpass.
+#[derive(Clone, Debug)]
+pub struct SpectralTilt {
+    pink: PinkFilter,
+    // Brown integrator states (matched to NoiseColorState brown path)
+    z1: f64,
+    z2: f64,
+}
+
+impl SpectralTilt {
+    pub fn new() -> Self {
+        Self {
+            pink: PinkFilter::new(),
+            z1: 0.0,
+            z2: 0.0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.pink.reset();
+        self.z1 = 0.0;
+        self.z2 = 0.0;
+    }
+
+    /// Process white noise sample through continuous spectral tilt.
+    /// slope in [-2.0, +0.5]. Always runs both pink and brown to keep
+    /// filter states warm, then crossfades.
+    #[inline]
+    pub fn process(&mut self, white: f64, slope: f64) -> f64 {
+        let pink = self.pink.process(white);
+
+        // Brown: 2-pole leaky integrator
+        self.z1 = 0.995 * self.z1 + 0.005 * white;
+        self.z2 = 0.985 * self.z2 + 0.015 * self.z1;
+        let brown = soft_tanh(self.z2 * 2.4) * 0.5;
+
+        let s = clamp(slope, -2.0, 0.5);
+
+        if s >= 0.0 {
+            // [0, +0.5]: white with gentle high-shelf boost
+            // Simple highpass emphasis: white + s * (white - pink)
+            white + s * (white - pink)
+        } else if s >= -1.0 {
+            // [0, -1]: white → pink
+            let t = -s;
+            (1.0 - t) * white + t * pink
+        } else {
+            // [-1, -2]: pink → brown
+            let t = -s - 1.0;
+            (1.0 - t) * pink + t * brown
+        }
+    }
+}
+
+impl Default for SpectralTilt {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ─── Aureo harmonic state ────────────────────────────────────────────────────
 
 /// Maximum partials for Aureo/Quantum harmonic stacks

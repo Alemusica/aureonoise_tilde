@@ -19,6 +19,9 @@ mod phit;
 mod external;
 mod modal;
 mod dialogue;
+mod binaural;
+mod isochronic;
+mod tinnitus;
 
 pub use constants::*;
 pub use rng::Rng;
@@ -30,10 +33,14 @@ pub use stoch::{OrnsteinUhlenbeck, Lattice, Hawkes};
 pub use envelope::{Envelope, EnvelopeShape};
 pub use grain::{Grain, GrainPool};
 pub use burst::{BurstEngine, BurstResult};
-pub use phi_model::PhiModel;
+pub use phi_model::{PhiModel, GeometryConfig, Geometry, build_geometry, compute_head_result};
 pub use external::{ExternalProcessor, ExternalConfig};
 pub use dialogue::{DialogueSystem, DialogueParams, PhiPan, BilateralOscillator};
 pub use modal::{ModalEngine, ModalPreset};
+pub use binaural::BinauralBeat;
+pub use isochronic::IsochronicTone;
+pub use tinnitus::TinnitusNotch;
+pub use noise::SpectralTilt;
 
 /// aureonoise DSP engine parameters
 #[pyclass]
@@ -136,6 +143,10 @@ pub struct Params {
     pub bilateral_rate: f64,
     #[pyo3(get, set)]
     pub bilateral_amount: f64,
+    /// Theta-gamma nesting: lock grain rate as integer multiple of bilateral rate.
+    /// Lisman-Jensen 2013: 4-8 gamma cycles per theta cycle.
+    #[pyo3(get, set)]
+    pub bilateral_nesting: bool,
 
     // Noise (extended modes 0-5)
     #[pyo3(get, set)]
@@ -166,6 +177,46 @@ pub struct Params {
     pub modal_mirror: f64,
     #[pyo3(get, set)]
     pub modal_feedback: f64,
+
+    // Coherence feedback (BAC-inspired closed-loop)
+    /// Enable coherence feedback loop (opt-in for therapeutic presets)
+    #[pyo3(get, set)]
+    pub feedback_on: bool,
+    /// Temperature ramp duration in seconds (0 = instant, >0 = linear ramp)
+    #[pyo3(get, set)]
+    pub temp_ramp_sec: f64,
+
+    // Binaural beat
+    #[pyo3(get, set)]
+    pub binaural_on: bool,
+    #[pyo3(get, set)]
+    pub binaural_carrier_hz: f64,
+    #[pyo3(get, set)]
+    pub binaural_beat_hz: f64,
+    #[pyo3(get, set)]
+    pub binaural_level: f64,
+
+    // Isochronic tone
+    #[pyo3(get, set)]
+    pub isochronic_on: bool,
+    #[pyo3(get, set)]
+    pub isochronic_carrier_hz: f64,
+    #[pyo3(get, set)]
+    pub isochronic_rate_hz: f64,
+    #[pyo3(get, set)]
+    pub isochronic_duty: f64,
+    #[pyo3(get, set)]
+    pub isochronic_level: f64,
+
+    // Continuous spectral slope (replaces discrete noise_color for tilt)
+    #[pyo3(get, set)]
+    pub noise_slope: f64,
+
+    // Tinnitus notch (0=off, >0=center freq Hz)
+    #[pyo3(get, set)]
+    pub tinnitus_notch_hz: f64,
+    #[pyo3(get, set)]
+    pub tinnitus_notch_q: f64,
 
     // Phi model (expose for GUI)
     #[pyo3(get, set)]
@@ -223,7 +274,7 @@ impl Default for Params {
             thermo: true,
             lattice: true,
             burst: true,
-            temperature: 0.45,
+            temperature: 0.22,
             lat_rate: 250.0,
             lat_eps: INV_PHI_CU,
             lat_gamma: PHI,
@@ -245,6 +296,7 @@ impl Default for Params {
             bilateral_on: false,
             bilateral_rate: 1.0,
             bilateral_amount: 0.8,
+            bilateral_nesting: false,
 
             // Noise (extended modes)
             noise_mode: 1,  // Pink
@@ -262,6 +314,30 @@ impl Default for Params {
             modal_preset: 1, // Wood
             modal_mirror: 0.3,
             modal_feedback: 0.1,
+
+            // Feedback
+            feedback_on: false,
+            temp_ramp_sec: 0.0,
+
+            // Binaural beat
+            binaural_on: false,
+            binaural_carrier_hz: 250.0,
+            binaural_beat_hz: 6.0,
+            binaural_level: 0.08,
+
+            // Isochronic
+            isochronic_on: false,
+            isochronic_carrier_hz: 165.0,
+            isochronic_rate_hz: 10.0,
+            isochronic_duty: 0.5,
+            isochronic_level: 0.10,
+
+            // Spectral slope
+            noise_slope: -1.0, // pink default (backward compat)
+
+            // Tinnitus notch
+            tinnitus_notch_hz: 0.0, // off
+            tinnitus_notch_q: 6.0,
 
             // Phi model
             phi_distance: 1.5,
@@ -303,6 +379,16 @@ pub struct Engine {
     // Modal resonator
     modal_engine: ModalEngine,
 
+    // Phi head geometry (for ITD computation)
+    phi_geom: Geometry,
+    phi_itd_max: f64, // max ITD samples at pan=1.0 for normalization
+
+    // New DSP modules (Sprint 4)
+    binaural: BinauralBeat,
+    isochronic: IsochronicTone,
+    tinnitus: TinnitusNotch,
+    spectral_tilt: SpectralTilt,
+
     // Stochastic
     ou_pan: OrnsteinUhlenbeck,
     ou_itd: OrnsteinUhlenbeck,
@@ -317,6 +403,17 @@ pub struct Engine {
     samples_to_next: i32,
     gap_elapsed: i32,
     sample_counter: u64,
+
+    // Coherence feedback loop (BAC-inspired)
+    coh_slow: f64,           // slow EMA of coherence (~5s tau)
+    effective_temp: f64,     // feedback-modulated temperature
+    effective_bilateral_rate: f64, // feedback-modulated bilateral rate
+
+    // Temperature ramp
+    temp_ramp_samples: f64,  // total ramp duration in samples (0 = instant)
+    temp_ramp_elapsed: f64,  // samples elapsed in current ramp
+    temp_start: f64,         // starting temperature
+    temp_target: f64,        // target temperature
 
     // LFO
     lfo_wow_phase: f64,
@@ -350,6 +447,13 @@ impl Engine {
         modal_engine.set_preset(ModalPreset::from_i32(params.modal_preset));
         modal_engine.set_active(params.modal_on);
 
+        let phi_geom = build_geometry(&GeometryConfig::default());
+        let phi_itd_max = compute_head_result(&phi_geom, sr, 1.0, 0.0, 1.0)
+            .itd_samples.abs().max(1e-9);
+
+        let init_temp = params.temperature;
+        let init_bilateral_rate = params.bilateral_rate;
+
         Self {
             params,
             sr,
@@ -371,6 +475,12 @@ impl Engine {
             phi_pan_proc: PhiPan::new(),
             bilateral: BilateralOscillator::new(),
             modal_engine,
+            phi_geom,
+            phi_itd_max,
+            binaural: BinauralBeat::new(),
+            isochronic: IsochronicTone::new(),
+            tinnitus: TinnitusNotch::new(sr),
+            spectral_tilt: SpectralTilt::new(),
             ou_pan: OrnsteinUhlenbeck::new(0.60, 0.0),
             ou_itd: OrnsteinUhlenbeck::new(0.40, 0.0),
             ou_amp: OrnsteinUhlenbeck::new(0.80, 0.0),
@@ -382,6 +492,13 @@ impl Engine {
             samples_to_next: (sr * 0.05) as i32,
             gap_elapsed: 0,
             sample_counter: 0,
+            coh_slow: 0.5,
+            effective_temp: init_temp,
+            effective_bilateral_rate: init_bilateral_rate,
+            temp_ramp_samples: 0.0,
+            temp_ramp_elapsed: 0.0,
+            temp_start: init_temp,
+            temp_target: init_temp,
             lfo_wow_phase: 0.0,
             lfo_flut_phase: 0.0,
             prev_pan: 0.0,
@@ -433,6 +550,17 @@ impl Engine {
         self.bilateral.set_rate(self.params.bilateral_rate);
         self.bilateral.set_amount(self.params.bilateral_amount);
 
+        // Temperature ramp
+        if self.params.temp_ramp_sec > 0.0 {
+            self.temp_ramp_samples = self.params.temp_ramp_sec * self.sr;
+            self.temp_ramp_elapsed = 0.0;
+            self.temp_start = self.effective_temp;
+            self.temp_target = self.params.temperature;
+        } else {
+            self.effective_temp = self.params.temperature;
+        }
+        self.effective_bilateral_rate = self.params.bilateral_rate;
+
         // Modal
         self.modal_engine.set_preset(ModalPreset::from_i32(self.params.modal_preset));
         self.modal_engine.set_active(self.params.modal_on);
@@ -471,6 +599,13 @@ impl Engine {
         self.samples_to_next = (self.sr * 0.05) as i32;
         self.gap_elapsed = 0;
         self.sample_counter = 0;
+        self.coh_slow = 0.5;
+        self.effective_temp = self.params.temperature;
+        self.effective_bilateral_rate = self.params.bilateral_rate;
+        self.temp_ramp_samples = self.params.temp_ramp_sec * self.sr;
+        self.temp_ramp_elapsed = 0.0;
+        self.temp_start = self.params.temperature;
+        self.temp_target = self.params.temperature;
         self.lfo_wow_phase = 0.0;
         self.lfo_flut_phase = 0.0;
         self.prev_pan = 0.0;
@@ -498,6 +633,12 @@ impl Engine {
     /// Get mean coherence across all utterances
     pub fn coherence_mean(&self) -> f64 {
         self.dialogue.coherence_mean()
+    }
+
+    /// Get Phase Locking Value — rhythmicity of handshakes [0, 1].
+    /// 1.0 = perfectly periodic handshakes, 0.0 = random timing.
+    pub fn handshake_plv(&self) -> f64 {
+        self.dialogue.handshake_plv()
     }
 
     /// Process a block of samples, returns (left, right) arrays
@@ -533,7 +674,44 @@ impl Engine {
     /// Internal block processing
     pub fn process_block(&mut self, out_l: &mut [f64], out_r: &mut [f64]) {
         let num_samples = out_l.len().min(out_r.len());
-        
+
+        // --- Temperature ramp (T4.2) ---
+        if self.temp_ramp_samples > 0.0 && self.temp_ramp_elapsed < self.temp_ramp_samples {
+            self.temp_ramp_elapsed += num_samples as f64;
+            let t = clamp01(self.temp_ramp_elapsed / self.temp_ramp_samples);
+            self.effective_temp = self.temp_start + t * (self.temp_target - self.temp_start);
+        }
+
+        // --- Coherence feedback loop (T4.1, BAC-inspired) ---
+        if self.params.feedback_on {
+            let coh = self.dialogue.coherence();
+            // Normalize: coherence typically in [0.6, 1.8], map to [0, 1]
+            let coh_norm = clamp01((coh - 0.6) / 1.2);
+            // Slow EMA (~5s tau at 44.1kHz/512 block = 86 blocks/s, alpha ≈ 0.002)
+            let alpha = clamp(num_samples as f64 / (5.0 * self.sr), 0.0001, 0.05);
+            self.coh_slow = (1.0 - alpha) * self.coh_slow + alpha * coh_norm;
+
+            let base_temp = self.effective_temp;
+            let base_rate = self.params.bilateral_rate;
+
+            if self.coh_slow > 0.7 {
+                // High coherence: converge — reduce temperature, slow bilateral
+                let factor = (self.coh_slow - 0.7) / 0.3;
+                self.effective_temp = clamp(base_temp * (1.0 - 0.15 * factor), 0.10, 0.50);
+                self.effective_bilateral_rate = clamp(base_rate * (1.0 - 0.30 * factor), 0.3, 6.0);
+            } else if self.coh_slow < 0.3 {
+                // Low coherence: explore — increase temperature and rate
+                let factor = (0.3 - self.coh_slow) / 0.3;
+                self.effective_temp = clamp(base_temp * (1.0 + 0.10 * factor), 0.10, 0.50);
+                self.effective_bilateral_rate = clamp(base_rate * (1.0 + 0.30 * factor), 0.3, 6.0);
+            }
+            // Update bilateral rate from feedback
+            self.bilateral.set_rate(self.effective_bilateral_rate);
+        }
+
+        // Update tinnitus notch filter (only recalcs on param change)
+        self.tinnitus.set_params(self.params.tinnitus_notch_hz, self.params.tinnitus_notch_q, self.sr);
+
         // Pre-calculate constants
         let wow_hz = map_phi_range(0.1, 1.5, clamp01(self.params.vhs_wow));
         let flt_hz = map_phi_range(7.0, 12.0, clamp01(self.params.vhs_flutter));
@@ -571,7 +749,7 @@ impl Engine {
                     }
                     
                     if self.params.thermo {
-                        let t = clamp01(self.params.temperature);
+                        let t = clamp01(self.effective_temp);
                         self.ou_pan.sigma = 0.40 * t;
                         self.ou_itd.sigma = 0.35 * t;
                         self.ou_amp.sigma = 0.30 * t;
@@ -592,6 +770,13 @@ impl Engine {
             
             // Generate and write noise to ring buffer (dispatches to all 6 modes)
             let mut nz = self.noise_gen.next_sample(&mut self.rng, self.sr);
+            // Continuous spectral tilt (overrides discrete noise_color for classic modes)
+            if self.params.noise_mode <= 2 {
+                let white = self.rng.uni_pm1();
+                nz = self.spectral_tilt.process(white, self.params.noise_slope);
+            }
+            // Tinnitus notch filter
+            nz = self.tinnitus.process(nz);
             nz = soft_tanh(nz * 1.2);
             self.ring.write(nz);
             let wi = self.ring.get_write_index();
@@ -616,9 +801,10 @@ impl Engine {
                 let phase = grain.phase();
                 let env = Envelope::eval(phase, &grain.env);
                 
-                // Read from ring with ITD
+                // Read from ring with ITD + per-grain offset for decorrelation
                 let itd = grain.itd + vhs_mod * 0.25 * itd_scale;
-                let (mut s_l, mut s_r) = self.ring.read_stereo_itd(wi, itd);
+                let base = (wi + RING_SIZE - grain.ring_offset) & RING_MASK;
+                let (mut s_l, mut s_r) = self.ring.read_stereo_itd(base, itd);
                 
                 // Apply pan and ILD
                 s_l *= grain.pan_l * grain.gain_l;
@@ -703,6 +889,31 @@ impl Engine {
                 y_r = mr;
             }
 
+            // Binaural beat (separate from noise path — Wahbeh 2007)
+            if self.params.binaural_on {
+                let (bl, br) = self.binaural.process_sample(
+                    self.sr,
+                    self.params.binaural_carrier_hz,
+                    self.params.binaural_beat_hz,
+                    self.params.binaural_level,
+                );
+                y_l += bl;
+                y_r += br;
+            }
+
+            // Isochronic tone (mono, added to both channels)
+            if self.params.isochronic_on {
+                let iso = self.isochronic.process_sample(
+                    self.sr,
+                    self.params.isochronic_carrier_hz,
+                    self.params.isochronic_rate_hz,
+                    self.params.isochronic_duty,
+                    self.params.isochronic_level,
+                );
+                y_l += iso;
+                y_r += iso;
+            }
+
             // External externalisation (block-level cross-channel feedback delay)
             self.external_proc.process_sample(&ext_cfg, &mut y_l, &mut y_r);
 
@@ -781,9 +992,35 @@ impl Engine {
         let len = clamp(base * PHI.powf(kexp), MIN_GRAIN_SAMPLES, self.sr * 4.0);
         grain.dur = len as u32;
 
-        // Burst position modulation (port of beta7_tools burst engine)
-        // dur_norm: normalize by base * PHI (expected long grain)
-        // gap_norm: normalize by expected gap (sr / rate)
+        // --- Dialogue evaluation FIRST (interhemispheric coherence) ---
+        // Dialogue must see the raw stochastic pan to detect phi-ratio handshakes.
+        // Previously burst modified pan before dialogue, destroying phi relationships.
+        let burst_weight = if self.burst_engine.enabled {
+            self.burst_engine.compute_weight(&self.hawkes)
+        } else {
+            0.0
+        };
+        let dialogue_params = DialogueParams {
+            strength: self.params.dialogue_strength,
+            memory: self.params.dialogue_memory,
+            phi_mix: self.params.dialogue_phi_mix,
+            enabled: self.params.dialogue_on,
+            burst_weight,
+        };
+        let dial_result = self.dialogue.evaluate(
+            &dialogue_params, pan, grain.amp, len, gap_samples,
+        );
+        if self.params.dialogue_on {
+            pan = dial_result.pan;
+            grain.pan = pan;
+            grain.amp *= dial_result.amp_scale;
+            let new_len = clamp(len * dial_result.dur_scale, MIN_GRAIN_SAMPLES, self.sr * 4.0);
+            grain.dur = new_len as u32;
+        }
+        self.dialogue.commit(&dialogue_params, &dial_result, true);
+
+        // --- Burst position modulation AFTER dialogue ---
+        // Burst's center_pull is spatial clustering, independent of phi-ratio detection.
         if self.burst_engine.enabled {
             let dur_norm = clamp01(len / (base * PHI));
             let expected_gap = if self.params.rate > 1.0e-6 {
@@ -798,27 +1035,6 @@ impl Engine {
             grain.amp *= br.amp_scale;
         }
 
-        // --- Dialogue evaluation (interhemispheric coherence) ---
-        let dialogue_params = DialogueParams {
-            strength: self.params.dialogue_strength,
-            memory: self.params.dialogue_memory,
-            phi_mix: self.params.dialogue_phi_mix,
-            enabled: self.params.dialogue_on,
-        };
-        let dial_result = self.dialogue.evaluate(
-            &dialogue_params, pan, grain.amp, len, gap_samples,
-        );
-        // Apply dialogue corrections
-        if self.params.dialogue_on {
-            pan = dial_result.pan;
-            grain.pan = pan;
-            grain.amp *= dial_result.amp_scale;
-            let new_len = clamp(len * dial_result.dur_scale, MIN_GRAIN_SAMPLES, self.sr * 4.0);
-            grain.dur = new_len as u32;
-        }
-        // Commit the result
-        self.dialogue.commit(&dialogue_params, &dial_result, true);
-
         // --- Phi-Pan (phi-ratio alternation) ---
         if self.params.phi_pan {
             pan = self.phi_pan_proc.next(pan);
@@ -826,17 +1042,34 @@ impl Engine {
         }
 
         // --- Bilateral oscillator (EMDR-style deterministic L-R sweep) ---
+        // T0.1 fix: pass gap_samples so phase advances by actual elapsed time
         if self.params.bilateral_on {
-            pan = self.bilateral.apply(pan, self.sr);
+            pan = self.bilateral.apply(pan, self.sr, gap_samples);
             grain.pan = pan;
         }
+
+        // --- Inter-grain decorrelation: quasi-random ring offset ---
+        // Each grain reads from a different region of the ring buffer.
+        // Offset capped at 4096 samples (~93ms at 44.1kHz) for fresh content.
+        grain.ring_offset = (self.w_s2.next() * 4096.0) as usize;
 
         // Binaural
         let (pan_l, pan_r) = pan_equal_power(pan, self.params.width);
         grain.pan_l = pan_l;
         grain.pan_r = pan_r;
         
-        let mut itd = map_itd_samples(self.sr, self.params.itd_us, pan, u2);
+        // ITD: phi-model ellipsoid Woodworth (direction-dependent head radius)
+        let max_itd_samples = clamp(self.params.itd_us, 0.0, 1600.0) * 1.0e-6 * self.sr;
+        let mut itd = if max_itd_samples > 1e-9 {
+            let phi_head = compute_head_result(&self.phi_geom, self.sr, pan, 0.0, 1.0);
+            let scale = max_itd_samples / self.phi_itd_max;
+            let base_itd = phi_head.itd_samples * scale;
+            // Stochastic jitter (±8% of max)
+            let jitter = (2.0 * clamp01(u2) - 1.0) * 0.08 * max_itd_samples;
+            clamp(base_itd + jitter, -max_itd_samples, max_itd_samples)
+        } else {
+            0.0
+        };
         if self.params.lattice {
             itd += ((2.0 * lat_u - 1.0) * 0.33 + 0.33 * oui) * itd_scale;
         }
@@ -906,8 +1139,20 @@ impl Engine {
     }
     
     fn schedule_gap_samples(&mut self) -> i32 {
+        // T1.2: After handshake, use pre-computed Fibonacci-ratio gaps ("temporal echo")
+        if let Some(queued) = self.dialogue.pop_queued_gap() {
+            return queued.round().max(1.0) as i32;
+        }
+
         let mut rate = clamp(self.params.rate, 0.0, MAX_EVENT_RATE_HZ);
-        
+
+        // T2.3: Theta-gamma nesting — quantize grain rate to integer multiple of bilateral rate
+        if self.params.bilateral_nesting && self.params.bilateral_on && self.params.bilateral_rate > 0.1 {
+            let bi_rate = self.params.bilateral_rate;
+            let ratio = (rate / bi_rate).round().max(4.0).min(8.0); // 4:1 to 8:1
+            rate = bi_rate * ratio;
+        }
+
         if self.params.thermo {
             let ur = 0.5 + 0.5 * self.ou_rate.y.tanh();
             let rate_phi = map_phi_range(

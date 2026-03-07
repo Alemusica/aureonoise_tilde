@@ -56,6 +56,13 @@ class AudioEngine:
         self._rms_l = 0.0
         self._rms_r = 0.0
         
+        # Analysis hook (T7.3)
+        self._analysis_interval = 0  # blocks between analysis (0 = off)
+        self._analysis_counter = 0
+        self._analysis_buffer_l: list = []
+        self._analysis_buffer_r: list = []
+        self._on_analysis: Optional[Callable] = None
+
         # Callbacks
         self._on_meter: Optional[Callable] = None
     
@@ -86,37 +93,69 @@ class AudioEngine:
         """Start audio output."""
         if self._running:
             return
-        
+
+        # Use device's native sample rate to avoid PortAudio resampling errors
+        actual_sr = self.sample_rate
+        try:
+            dev_info = sd.query_devices(self.output_device, 'output')
+            actual_sr = dev_info['default_samplerate']
+        except Exception:
+            pass
+
+        if actual_sr != self.sample_rate:
+            self.sample_rate = actual_sr
+            self.engine = Engine(actual_sr)
+            self.engine.set_params(self._params)
+
         def callback(outdata, frames, time_info, status):
             if status:
                 print(f"Audio status: {status}")
-            
+
             with self._lock:
                 left, right = self.engine.process(frames)
-            
-            left_np = np.array(left)
-            right_np = np.array(right)
-            
+
+            left_np = np.array(left, dtype=np.float32)
+            right_np = np.array(right, dtype=np.float32)
+
             # Interleave for stereo output
             outdata[:, 0] = left_np
             outdata[:, 1] = right_np
-            
+
             # Update meters
             self._peak_l = max(self._peak_l * 0.95, np.abs(left_np).max())
             self._peak_r = max(self._peak_r * 0.95, np.abs(right_np).max())
             self._rms_l = np.sqrt(np.mean(left_np**2))
             self._rms_r = np.sqrt(np.mean(right_np**2))
-            
+
             if self._on_meter:
                 self._on_meter(self._peak_l, self._peak_r, self._rms_l, self._rms_r)
-        
+
+            # Real-time analysis hook (T7.3)
+            if self._analysis_interval > 0 and self._on_analysis:
+                self._analysis_buffer_l.extend(left_np.tolist())
+                self._analysis_buffer_r.extend(right_np.tolist())
+                self._analysis_counter += 1
+                if self._analysis_counter >= self._analysis_interval:
+                    self._analysis_counter = 0
+                    try:
+                        from aureonoise.analysis import analyze
+                        buf_l = np.array(self._analysis_buffer_l)
+                        buf_r = np.array(self._analysis_buffer_r)
+                        report = analyze(buf_l, buf_r, self.sample_rate)
+                        self._on_analysis(report)
+                    except Exception:
+                        pass
+                    self._analysis_buffer_l.clear()
+                    self._analysis_buffer_r.clear()
+
         self._stream = sd.OutputStream(
             samplerate=self.sample_rate,
             blocksize=self.block_size,
             device=self.output_device,
             channels=2,
-            dtype=np.float64,
+            dtype=np.float32,
             callback=callback,
+            latency='high',
         )
         self._stream.start()
         self._running = True
@@ -142,6 +181,12 @@ class AudioEngine:
         """Set meter callback: fn(peak_l, peak_r, rms_l, rms_r)"""
         self._on_meter = callback
     
+    def on_analysis(self, callback: Callable, interval_blocks: int = 86):
+        """Set analysis callback: fn(AnalysisReport). Called every interval_blocks.
+        Default 86 blocks ≈ 1 second at 512 block size / 44100 Hz."""
+        self._on_analysis = callback
+        self._analysis_interval = max(1, interval_blocks)
+
     def get_meters(self) -> tuple:
         """Get current meter values: (peak_l, peak_r, rms_l, rms_r)"""
         return (self._peak_l, self._peak_r, self._rms_l, self._rms_r)

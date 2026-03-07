@@ -96,6 +96,26 @@ class Preset:
             "modal_preset": params.modal_preset,
             "modal_mirror": params.modal_mirror,
             "modal_feedback": params.modal_feedback,
+            # Binaural beat
+            "binaural_on": params.binaural_on,
+            "binaural_carrier_hz": params.binaural_carrier_hz,
+            "binaural_beat_hz": params.binaural_beat_hz,
+            "binaural_level": params.binaural_level,
+            # Isochronic
+            "isochronic_on": params.isochronic_on,
+            "isochronic_carrier_hz": params.isochronic_carrier_hz,
+            "isochronic_rate_hz": params.isochronic_rate_hz,
+            "isochronic_duty": params.isochronic_duty,
+            "isochronic_level": params.isochronic_level,
+            # Spectral slope
+            "noise_slope": params.noise_slope,
+            # Tinnitus notch
+            "tinnitus_notch_hz": params.tinnitus_notch_hz,
+            "tinnitus_notch_q": params.tinnitus_notch_q,
+            # Feedback / nesting
+            "bilateral_nesting": params.bilateral_nesting,
+            "feedback_on": params.feedback_on,
+            "temp_ramp_sec": params.temp_ramp_sec,
             # Phi model
             "phi_distance": params.phi_distance,
             "phi_elev": params.phi_elev,
@@ -793,6 +813,252 @@ class PresetBank:
             }
         )
     
+        # ── New therapeutic presets (Sprint 4/5) ──────────────────────
+
+        _THERAPEUTIC_BASE = {
+            "vhs_wow": 0.0, "vhs_flutter": 0.0, "glitch_mix": 0.0,
+            "srcrush_amt": 0.0, "bitcrush_amt": 0.0,
+            "spat_min_deg": 12.0, "spat_min_ms": 35.0,
+            "spat_ipd": 0.6, "spat_shadow": 0.7,
+            "aureo_decay": 0.3, "aureo_stride": 1.0, "aureo_harmonics": 12,
+            "quantum_detail": 0.7, "quantum_base": 220.0, "velvet_density": 2000.0,
+            "modal_on": False, "modal_mix": 0.3, "modal_decay": 0.5,
+            "modal_preset": 0, "modal_mirror": 0.3, "modal_feedback": 0.1,
+            "phi_distance": 1.5, "phi_elev": 0.0, "seed": 20251010,
+        }
+
+        def _therapeutic(name, desc, overrides):
+            p = dict(_THERAPEUTIC_BASE)
+            p.update(overrides)
+            self.presets[name] = Preset(
+                name=name, description=desc, author="aureonoise", params=p,
+            )
+
+        _therapeutic("Sleep Delta Binaural",
+            "Delta binaural beat (2.5 Hz) in pink noise for deep sleep (Jirakittayakorn 2017)",
+            {
+                "rate": 3.0, "baselen_ms": 500.0, "len_phi": 0.4,
+                "width": 0.8, "itd_us": 600.0, "ild_db": 4.0,
+                "hemis_coupling": 0.5, "noise_color": 1, "color_amt": 0.8,
+                "noise_mode": 1, "noise_slope": -1.0,
+                "env_attack": 0.3, "env_decay": 0.3, "env_sustain": 0.7, "env_release": 0.5,
+                "thermo": True, "lattice": False, "burst": False,
+                "temperature": 0.10,
+                "externalization": 0.0,
+                "dialogue_on": False, "dialogue_strength": 0.5,
+                "dialogue_memory": 0.5, "dialogue_phi_mix": 0.75,
+                "phi_pan": False, "bilateral_on": False,
+                "bilateral_rate": 1.0, "bilateral_amount": 0.8,
+                "bilateral_nesting": False, "feedback_on": False, "temp_ramp_sec": 30.0,
+                "binaural_on": True, "binaural_carrier_hz": 200.0,
+                "binaural_beat_hz": 2.5, "binaural_level": 0.08,
+                "isochronic_on": False, "isochronic_carrier_hz": 165.0,
+                "isochronic_rate_hz": 10.0, "isochronic_duty": 0.5, "isochronic_level": 0.0,
+                "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
+        _therapeutic("Theta Meditation",
+            "Theta binaural beat (6 Hz) in brown noise for meditation (Lavallee 2011)",
+            {
+                "rate": 4.0, "baselen_ms": 300.0, "len_phi": 0.6,
+                "width": 0.9, "itd_us": 600.0, "ild_db": 5.0,
+                "hemis_coupling": 0.6, "noise_color": 2, "color_amt": 0.75,
+                "noise_mode": 2, "noise_slope": -2.0,
+                "env_attack": 0.25, "env_decay": 0.3, "env_sustain": 0.6, "env_release": 0.4,
+                "thermo": True, "lattice": True, "burst": False,
+                "temperature": 0.18,
+                "externalization": 0.15,
+                "dialogue_on": True, "dialogue_strength": 0.4,
+                "dialogue_memory": 0.5, "dialogue_phi_mix": 0.75,
+                "phi_pan": False, "bilateral_on": False,
+                "bilateral_rate": 1.0, "bilateral_amount": 0.8,
+                "bilateral_nesting": False, "feedback_on": False, "temp_ramp_sec": 20.0,
+                "binaural_on": True, "binaural_carrier_hz": 250.0,
+                "binaural_beat_hz": 6.0, "binaural_level": 0.06,
+                "isochronic_on": False, "isochronic_carrier_hz": 165.0,
+                "isochronic_rate_hz": 10.0, "isochronic_duty": 0.5, "isochronic_level": 0.0,
+                "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
+        _therapeutic("Alpha Relax",
+            "Alpha binaural beat (10 Hz) in pink noise for relaxation (Solca 2016)",
+            {
+                "rate": 6.0, "baselen_ms": 200.0, "len_phi": 0.6,
+                "width": 1.0, "itd_us": 600.0, "ild_db": 5.0,
+                "hemis_coupling": 0.6, "noise_color": 1, "color_amt": 0.7,
+                "noise_mode": 1, "noise_slope": -1.0,
+                "env_attack": 0.2, "env_decay": 0.28, "env_sustain": 0.55, "env_release": 0.35,
+                "thermo": True, "lattice": True, "burst": False,
+                "temperature": 0.20,
+                "externalization": 0.2,
+                "dialogue_on": True, "dialogue_strength": 0.5,
+                "dialogue_memory": 0.5, "dialogue_phi_mix": 0.75,
+                "phi_pan": False, "bilateral_on": False,
+                "bilateral_rate": 1.0, "bilateral_amount": 0.8,
+                "bilateral_nesting": False, "feedback_on": False, "temp_ramp_sec": 15.0,
+                "binaural_on": True, "binaural_carrier_hz": 300.0,
+                "binaural_beat_hz": 10.0, "binaural_level": 0.07,
+                "isochronic_on": False, "isochronic_carrier_hz": 165.0,
+                "isochronic_rate_hz": 10.0, "isochronic_duty": 0.5, "isochronic_level": 0.0,
+                "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
+        _therapeutic("Gamma Focus",
+            "40 Hz isochronic entrainment in brown noise (MIT GENUS: 69% reduced atrophy)",
+            {
+                "rate": 10.0, "baselen_ms": 100.0, "len_phi": 0.6,
+                "width": 0.9, "itd_us": 600.0, "ild_db": 6.0,
+                "hemis_coupling": 0.6, "noise_color": 2, "color_amt": 0.75,
+                "noise_mode": 2, "noise_slope": -2.0,
+                "env_attack": 0.15, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
+                "thermo": True, "lattice": True, "burst": False,
+                "temperature": 0.22,
+                "externalization": 0.3,
+                "dialogue_on": False, "dialogue_strength": 0.6,
+                "dialogue_memory": 0.5, "dialogue_phi_mix": 0.75,
+                "phi_pan": False, "bilateral_on": False,
+                "bilateral_rate": 1.0, "bilateral_amount": 0.8,
+                "bilateral_nesting": False, "feedback_on": False, "temp_ramp_sec": 0.0,
+                "binaural_on": False, "binaural_carrier_hz": 250.0,
+                "binaural_beat_hz": 6.0, "binaural_level": 0.0,
+                "isochronic_on": True, "isochronic_carrier_hz": 400.0,
+                "isochronic_rate_hz": 40.0, "isochronic_duty": 0.5, "isochronic_level": 0.12,
+                "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
+        _therapeutic("Tinnitus Relief",
+            "Notch-filtered pink noise at customizable tinnitus frequency",
+            {
+                "rate": 5.0, "baselen_ms": 300.0, "len_phi": 0.5,
+                "width": 0.8, "itd_us": 500.0, "ild_db": 4.0,
+                "hemis_coupling": 0.5, "noise_color": 1, "color_amt": 0.75,
+                "noise_mode": 1, "noise_slope": -1.0,
+                "env_attack": 0.25, "env_decay": 0.3, "env_sustain": 0.6, "env_release": 0.4,
+                "thermo": True, "lattice": False, "burst": False,
+                "temperature": 0.15,
+                "externalization": 0.0,
+                "dialogue_on": False, "dialogue_strength": 0.5,
+                "dialogue_memory": 0.5, "dialogue_phi_mix": 0.75,
+                "phi_pan": False, "bilateral_on": False,
+                "bilateral_rate": 1.0, "bilateral_amount": 0.8,
+                "bilateral_nesting": False, "feedback_on": False, "temp_ramp_sec": 0.0,
+                "binaural_on": False, "binaural_carrier_hz": 250.0,
+                "binaural_beat_hz": 6.0, "binaural_level": 0.0,
+                "isochronic_on": False, "isochronic_carrier_hz": 165.0,
+                "isochronic_rate_hz": 10.0, "isochronic_duty": 0.5, "isochronic_level": 0.0,
+                "tinnitus_notch_hz": 4000.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
+        _therapeutic("CC Gentle",
+            "Gentle corpus callosum stimulation (bilateral 0.7 Hz, dialogue 0.5)",
+            {
+                "rate": 8.0, "baselen_ms": 120.0, "len_phi": 0.7,
+                "width": 1.0, "itd_us": 600.0, "ild_db": 5.0,
+                "hemis_coupling": 0.7, "noise_color": 1, "color_amt": 0.7,
+                "noise_mode": 1, "noise_slope": -1.0,
+                "env_attack": 0.18, "env_decay": 0.28, "env_sustain": 0.55, "env_release": 0.30,
+                "thermo": True, "lattice": True, "burst": False,
+                "temperature": 0.20,
+                "externalization": 0.3,
+                "dialogue_on": True, "dialogue_strength": 0.5,
+                "dialogue_memory": 0.5, "dialogue_phi_mix": 0.75,
+                "phi_pan": False, "bilateral_on": True,
+                "bilateral_rate": 0.7, "bilateral_amount": 0.6,
+                "bilateral_nesting": True, "feedback_on": True, "temp_ramp_sec": 30.0,
+                "binaural_on": False, "binaural_carrier_hz": 250.0,
+                "binaural_beat_hz": 6.0, "binaural_level": 0.0,
+                "isochronic_on": False, "isochronic_carrier_hz": 165.0,
+                "isochronic_rate_hz": 10.0, "isochronic_duty": 0.5, "isochronic_level": 0.0,
+                "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
+        _therapeutic("CC Maximum",
+            "Maximum corpus callosum drive (bilateral 1.0 Hz, dialogue 0.85, feedback loop)",
+            {
+                "rate": 8.0, "baselen_ms": 100.0, "len_phi": 0.7,
+                "width": 1.0, "itd_us": 600.0, "ild_db": 6.0,
+                "hemis_coupling": 0.85, "noise_color": 1, "color_amt": 0.7,
+                "noise_mode": 1, "noise_slope": -1.0,
+                "env_attack": 0.15, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
+                "thermo": True, "lattice": True, "burst": False,
+                "temperature": 0.22,
+                "externalization": 0.35,
+                "dialogue_on": True, "dialogue_strength": 0.85,
+                "dialogue_memory": 0.65, "dialogue_phi_mix": 0.85,
+                "phi_pan": False, "bilateral_on": True,
+                "bilateral_rate": 1.0, "bilateral_amount": 0.9,
+                "bilateral_nesting": True, "feedback_on": True, "temp_ramp_sec": 20.0,
+                "binaural_on": False, "binaural_carrier_hz": 250.0,
+                "binaural_beat_hz": 6.0, "binaural_level": 0.0,
+                "isochronic_on": False, "isochronic_carrier_hz": 165.0,
+                "isochronic_rate_hz": 10.0, "isochronic_duty": 0.5, "isochronic_level": 0.0,
+                "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
+        _therapeutic("Delta Reset 3Hz",
+            "3 Hz delta isochronic for prayer state / deep reset (Slezin 2003)",
+            {
+                "rate": 3.0, "baselen_ms": 400.0, "len_phi": 0.5,
+                "width": 0.8, "itd_us": 500.0, "ild_db": 4.0,
+                "hemis_coupling": 0.5, "noise_color": 2, "color_amt": 0.8,
+                "noise_mode": 2, "noise_slope": -1.5,
+                "env_attack": 0.3, "env_decay": 0.35, "env_sustain": 0.6, "env_release": 0.45,
+                "thermo": True, "lattice": False, "burst": False,
+                "temperature": 0.12,
+                "externalization": 0.0,
+                "dialogue_on": False, "dialogue_strength": 0.5,
+                "dialogue_memory": 0.5, "dialogue_phi_mix": 0.75,
+                "phi_pan": False, "bilateral_on": False,
+                "bilateral_rate": 1.0, "bilateral_amount": 0.8,
+                "bilateral_nesting": False, "feedback_on": False, "temp_ramp_sec": 60.0,
+                "binaural_on": False, "binaural_carrier_hz": 200.0,
+                "binaural_beat_hz": 3.0, "binaural_level": 0.0,
+                "isochronic_on": True, "isochronic_carrier_hz": 150.0,
+                "isochronic_rate_hz": 3.0, "isochronic_duty": 0.4, "isochronic_level": 0.10,
+                "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
+        _therapeutic("Schumann 7.83Hz",
+            "7.83 Hz Schumann resonance at theta/alpha border (Earth's electromagnetic pulse)",
+            {
+                "rate": 6.0, "baselen_ms": 200.0, "len_phi": 0.6,
+                "width": 1.0, "itd_us": 600.0, "ild_db": 5.0,
+                "hemis_coupling": 0.6, "noise_color": 1, "color_amt": 0.7,
+                "noise_mode": 1, "noise_slope": -1.0,
+                "env_attack": 0.2, "env_decay": 0.28, "env_sustain": 0.55, "env_release": 0.35,
+                "thermo": True, "lattice": True, "burst": False,
+                "temperature": 0.20,
+                "externalization": 0.15,
+                "dialogue_on": True, "dialogue_strength": 0.5,
+                "dialogue_memory": 0.5, "dialogue_phi_mix": 0.75,
+                "phi_pan": False, "bilateral_on": True,
+                "bilateral_rate": 0.5, "bilateral_amount": 0.5,
+                "bilateral_nesting": False, "feedback_on": False, "temp_ramp_sec": 15.0,
+                "binaural_on": True, "binaural_carrier_hz": 220.0,
+                "binaural_beat_hz": 7.83, "binaural_level": 0.06,
+                "isochronic_on": False, "isochronic_carrier_hz": 165.0,
+                "isochronic_rate_hz": 7.83, "isochronic_duty": 0.5, "isochronic_level": 0.0,
+                "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
+                "burst_floor": 0.35, "burst_phi_mix": 0.6,
+                "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+            })
+
     def list(self) -> List[str]:
         """List all preset names."""
         return list(self.presets.keys())
@@ -832,10 +1098,23 @@ class PresetBank:
 # ── FACTORY: therapeutic preset names for quick GUI access ─────────
 # Maps display name -> (preset key in PresetBank, button color RGBA)
 FACTORY = {
+    # Original therapeutic
     "EMDR Bilateral":    ("EMDR Bilateral",    (70, 130, 210, 255)),   # blue
     "ASMR Intimate":     ("ASMR Intimate",     (210, 140, 70, 255)),   # warm/orange
     "Sleep Pink":        ("Sleep Pink",         (80, 70, 160, 255)),    # dark blue/purple
     "Focus Brown":       ("Focus Brown",        (70, 170, 100, 255)),   # green
     "Theta Drift":       ("Theta Drift",        (70, 180, 170, 255)),   # teal
     "Hemispheric Bridge":("Hemispheric Bridge", (200, 170, 70, 255)),   # gold
+    # New binaural/isochronic/notch
+    "Sleep Delta Binaural": ("Sleep Delta Binaural", (60, 50, 140, 255)),  # deep purple
+    "Theta Meditation":  ("Theta Meditation",   (100, 80, 180, 255)),   # purple
+    "Alpha Relax":       ("Alpha Relax",        (90, 170, 220, 255)),   # sky blue
+    "Gamma Focus":       ("Gamma Focus",        (220, 180, 50, 255)),   # amber
+    "Tinnitus Relief":   ("Tinnitus Relief",    (180, 100, 100, 255)),  # muted red
+    # Corpus callosum
+    "CC Gentle":         ("CC Gentle",          (140, 190, 80, 255)),   # lime
+    "CC Maximum":        ("CC Maximum",         (220, 120, 50, 255)),   # orange-red
+    # Entrainment
+    "Delta Reset 3Hz":   ("Delta Reset 3Hz",    (70, 60, 120, 255)),    # dark indigo
+    "Schumann 7.83Hz":   ("Schumann 7.83Hz",    (100, 160, 130, 255)), # sage
 }

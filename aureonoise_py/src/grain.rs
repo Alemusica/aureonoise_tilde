@@ -64,6 +64,10 @@ pub struct Grain {
     pub kind: GrainKind,
     /// Envelope shape
     pub env: EnvelopeShape,
+    /// Ring buffer read offset for inter-grain decorrelation.
+    /// Each grain reads from a different region of the ring buffer,
+    /// producing uncorrelated noise content across concurrent grains.
+    pub ring_offset: usize,
 }
 
 #[pymethods]
@@ -123,6 +127,7 @@ impl Default for Grain {
             q_levels: 0,
             kind: GrainKind::Burst,
             env: EnvelopeShape::default(),
+            ring_offset: 0,
         }
     }
 }
