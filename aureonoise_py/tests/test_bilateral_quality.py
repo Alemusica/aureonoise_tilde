@@ -95,11 +95,11 @@ class TestBilateralTiming:
         p.thermo = False
         p.lattice = False
         p.burst = False
-        p.rate = 0.5  # low grain rate to avoid noise
+        p.rate = 4.0  # enough grains to span both hemispheres
         e.set_params(p)
 
-        # Render 3 seconds
-        total = int(SR * 3)
+        # Render 4 seconds (>2 bilateral cycles at 1 Hz)
+        total = int(SR * 4)
         left, right = e.process(total)
         left, right = np.array(left), np.array(right)
 

@@ -653,6 +653,10 @@ impl Engine {
         self.phi_pan_proc.reset();
         self.bilateral.reset();
         self.modal_engine.reset();
+        self.binaural.reset();
+        self.isochronic.reset();
+        self.tinnitus = TinnitusNotch::new(self.sr);
+        self.spectral_tilt = SpectralTilt::new();
         self.dvf.reset();
         self.room.reset();
         self.polyrhythm.reset();
@@ -853,13 +857,14 @@ impl Engine {
                 }
             }
             
-            // Generate and write noise to ring buffer (dispatches to all 6 modes)
-            let mut nz = self.noise_gen.next_sample(&mut self.rng, self.sr);
-            // Continuous spectral tilt (overrides discrete noise_color for classic modes)
-            if self.params.noise_mode <= 2 {
+            // Generate noise: spectral tilt for classic modes (0-2), NoiseGen for extended (3-5)
+            let mut nz = if self.params.noise_mode <= 2 {
+                // Continuous spectral tilt replaces discrete noise_color
                 let white = self.rng.uni_pm1();
-                nz = self.spectral_tilt.process(white, self.params.noise_slope);
-            }
+                self.spectral_tilt.process(white, self.params.noise_slope)
+            } else {
+                self.noise_gen.next_sample(&mut self.rng, self.sr)
+            };
             // Tinnitus notch filter
             nz = self.tinnitus.process(nz);
             nz = soft_tanh(nz * 1.2);

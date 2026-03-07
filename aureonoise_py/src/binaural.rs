@@ -30,16 +30,18 @@ impl BinauralBeat {
     /// level: amplitude (0-1), typically 0.05-0.15 (-20 to -16 dB)
     #[inline]
     pub fn process_sample(&mut self, sr: f64, carrier_hz: f64, beat_hz: f64, level: f64) -> (f64, f64) {
-        let freq_l = carrier_hz - beat_hz * 0.5;
-        let freq_r = carrier_hz + beat_hz * 0.5;
+        if sr <= 0.0 { return (0.0, 0.0); }
+        let carrier = clamp(carrier_hz, 20.0, sr * 0.5);
+        let freq_l = carrier - beat_hz * 0.5;
+        let freq_r = carrier + beat_hz * 0.5;
 
         let out_l = level * (TWO_PI * self.phase_l).sin();
         let out_r = level * (TWO_PI * self.phase_r).sin();
 
         self.phase_l += freq_l / sr;
-        if self.phase_l >= 1.0 { self.phase_l -= 1.0; }
+        if self.phase_l >= 1.0 { self.phase_l %= 1.0; }
         self.phase_r += freq_r / sr;
-        if self.phase_r >= 1.0 { self.phase_r -= 1.0; }
+        if self.phase_r >= 1.0 { self.phase_r %= 1.0; }
 
         (out_l, out_r)
     }

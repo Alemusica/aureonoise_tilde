@@ -44,11 +44,12 @@ impl IsochronicTone {
         let d = clamp(duty, 0.1, 0.9);
         let env = tukey_pulse(self.pulse_phase, d);
 
-        // Advance phases
-        self.carrier_phase += carrier_hz / sr;
-        if self.carrier_phase >= 1.0 { self.carrier_phase -= 1.0; }
+        // Advance phases (modulo for safety at extreme frequencies)
+        if sr <= 0.0 { return 0.0; }
+        self.carrier_phase += clamp(carrier_hz, 20.0, sr * 0.5) / sr;
+        if self.carrier_phase >= 1.0 { self.carrier_phase %= 1.0; }
         self.pulse_phase += rate_hz / sr;
-        if self.pulse_phase >= 1.0 { self.pulse_phase -= 1.0; }
+        if self.pulse_phase >= 1.0 { self.pulse_phase %= 1.0; }
 
         level * carrier * env
     }

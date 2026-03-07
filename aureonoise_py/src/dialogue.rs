@@ -198,22 +198,6 @@ impl DialogueSystem {
         ((sum_cos / n as f64).powi(2) + (sum_sin / n as f64).powi(2)).sqrt()
     }
 
-    /// Record a handshake phase for PLV computation.
-    /// Called internally when a handshake fires.
-    fn record_handshake_phase(&mut self) {
-        // Phase = utterance_count normalized by recent inter-handshake interval
-        let _n = self.state.plv_count.min(PLV_SIZE);
-        let period = if self.state.handshakes > 1 {
-            self.state.utterances as f64 / self.state.handshakes as f64
-        } else {
-            8.0 // default assumption
-        };
-        let phase = (self.state.utterances as f64 / period) % 1.0;
-        self.state.plv_phases[self.state.plv_pos] = phase;
-        self.state.plv_pos = (self.state.plv_pos + 1) % PLV_SIZE;
-        self.state.plv_count += 1;
-    }
-
     /// Pop next queued Fibonacci gap (in samples) if available.
     ///
     /// After a handshake, the next 2-3 grain gaps are pre-computed at
@@ -639,7 +623,7 @@ impl BilateralOscillator {
     #[inline]
     fn trajectory(&self) -> f64 {
         let d = self.dwell;
-        let t = 0.5 - d; // transit fraction per half-cycle
+        let t = (0.5 - d).max(0.01); // transit fraction per half-cycle (guard div-by-zero)
         let p = self.phase;
 
         if p < d {
