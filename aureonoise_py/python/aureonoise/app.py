@@ -294,6 +294,110 @@ class AureonoiseApp:
                     self._slider("modal_mirror", "Mirror", 0.0, 1.0, 0.3)
                     self._slider("modal_feedback", "Feedback", 0.0, 1.0, 0.1)
 
+                # ── Binaural tab ───────────────────────────────────
+                with dpg.tab(label="Binaural"):
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Binaural Beat Generator", color=COLORS["section"])
+                    dpg.add_text(
+                        "Separate sine tones per ear. Beat frequency = "
+                        "difference between L and R carrier.",
+                        color=COLORS["text_dim"], wrap=520)
+                    dpg.add_spacer(height=5)
+                    dpg.add_checkbox(
+                        label="Binaural On", default_value=False, tag="cb_binaural_on",
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="binaural_on")
+                    self._slider("binaural_carrier_hz", "Carrier (Hz)", 100.0, 500.0, 250.0)
+                    self._slider("binaural_beat_hz", "Beat (Hz)", 0.5, 40.0, 6.0)
+                    self._slider("binaural_level", "Level", 0.0, 0.3, 0.08)
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Isochronic Tone", color=COLORS["section"])
+                    dpg.add_text(
+                        "Pulsed carrier (Tukey-windowed AM). Mono, both ears.",
+                        color=COLORS["text_dim"], wrap=520)
+                    dpg.add_spacer(height=5)
+                    dpg.add_checkbox(
+                        label="Isochronic On", default_value=False, tag="cb_isochronic_on",
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="isochronic_on")
+                    self._slider("isochronic_carrier_hz", "Carrier (Hz)", 100.0, 500.0, 165.0)
+                    self._slider("isochronic_rate_hz", "Rate (Hz)", 1.0, 40.0, 10.0)
+                    self._slider("isochronic_duty", "Duty Cycle", 0.2, 0.8, 0.5)
+                    self._slider("isochronic_level", "Level", 0.0, 0.3, 0.10)
+
+                # ── Tinnitus / Notch tab ──────────────────────────
+                with dpg.tab(label="Tinnitus"):
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Tinnitus Notch Filter", color=COLORS["section"])
+                    dpg.add_text(
+                        "4th-order Butterworth notch at your tinnitus frequency. "
+                        "Set to 0 to disable.",
+                        color=COLORS["text_dim"], wrap=520)
+                    dpg.add_spacer(height=5)
+                    self._slider("tinnitus_notch_hz", "Center Freq (Hz)", 0.0, 12000.0, 0.0)
+                    self._slider("tinnitus_notch_q", "Q Factor", 1.0, 20.0, 6.0)
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Spectral Slope", color=COLORS["section"])
+                    dpg.add_text(
+                        "Continuous tilt: 0=white, -1=pink, -2=brown.",
+                        color=COLORS["text_dim"], wrap=520)
+                    self._slider("noise_slope", "Slope (dB/oct)", -2.5, 0.5, -1.0)
+
+                # ── Feedback / Spatial tab ─────────────────────────
+                with dpg.tab(label="Feedback"):
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Coherence Feedback Loop", color=COLORS["section"])
+                    dpg.add_text(
+                        "BAC-inspired closed-loop: high coherence calms, "
+                        "low coherence explores.",
+                        color=COLORS["text_dim"], wrap=520)
+                    dpg.add_spacer(height=5)
+                    dpg.add_checkbox(
+                        label="Feedback On", default_value=False, tag="cb_feedback_on",
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="feedback_on")
+                    self._slider("temp_ramp_sec", "Temp Ramp (s)", 0.0, 60.0, 0.0)
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Theta-Gamma Nesting", color=COLORS["section"])
+                    dpg.add_checkbox(
+                        label="Bilateral Nesting", default_value=False, tag="cb_bilateral_nesting",
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="bilateral_nesting")
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Coherence Spatial Morphing", color=COLORS["section"])
+                    dpg.add_text(
+                        "Width/ITD modulated by dialogue coherence.",
+                        color=COLORS["text_dim"], wrap=520)
+                    dpg.add_checkbox(
+                        label="Coherence Spatial", default_value=False, tag="cb_coherence_spatial",
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="coherence_spatial")
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Polyrhythm Clock", color=COLORS["section"])
+                    dpg.add_checkbox(
+                        label="Polyrhythm On", default_value=False, tag="cb_polyrhythm_on",
+                        callback=lambda s, a, u: self._set_param(u, a),
+                        user_data="polyrhythm_on")
+                    self._slider_int("polyrhythm_p", "P (left)", 2, 8, 3)
+                    self._slider_int("polyrhythm_q", "Q (right)", 2, 8, 2)
+                    self._slider("polyrhythm_rate", "Base Rate (Hz)", 0.1, 3.0, 0.5)
+                    self._slider("polyrhythm_amount", "Amount", 0.0, 1.0, 0.5)
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Room Reverb", color=COLORS["section"])
+                    self._slider("room_mix", "Room Mix", 0.0, 0.5, 0.0)
+
                 # ── Stochastic tab ──────────────────────────────────
                 with dpg.tab(label="Stochastic"):
                     dpg.add_spacer(height=5)
@@ -395,8 +499,8 @@ class AureonoiseApp:
         # Viewport setup
         dpg.create_viewport(
             title="aureonoise",
-            width=620,
-            height=780,
+            width=680,
+            height=820,
             resizable=True,
         )
         dpg.setup_dearpygui()
@@ -543,6 +647,12 @@ class AureonoiseApp:
         _safe_set("cb_dialogue_on", params.get("dialogue_on", True))
         _safe_set("cb_bilateral_on", params.get("bilateral_on", False))
         _safe_set("cb_modal_on", params.get("modal_on", False))
+        _safe_set("cb_binaural_on", params.get("binaural_on", False))
+        _safe_set("cb_isochronic_on", params.get("isochronic_on", False))
+        _safe_set("cb_feedback_on", params.get("feedback_on", False))
+        _safe_set("cb_bilateral_nesting", params.get("bilateral_nesting", False))
+        _safe_set("cb_coherence_spatial", params.get("coherence_spatial", False))
+        _safe_set("cb_polyrhythm_on", params.get("polyrhythm_on", False))
 
         # Noise mode radio
         nm = params.get("noise_mode", 1)

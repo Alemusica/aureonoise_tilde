@@ -119,6 +119,16 @@ class Preset:
             # Phi model
             "phi_distance": params.phi_distance,
             "phi_elev": params.phi_elev,
+            # Polyrhythm
+            "polyrhythm_on": params.polyrhythm_on,
+            "polyrhythm_p": params.polyrhythm_p,
+            "polyrhythm_q": params.polyrhythm_q,
+            "polyrhythm_rate": params.polyrhythm_rate,
+            "polyrhythm_amount": params.polyrhythm_amount,
+            # Room reverb
+            "room_mix": params.room_mix,
+            # Coherence spatial
+            "coherence_spatial": params.coherence_spatial,
             # System
             "seed": params.seed,
         }
@@ -497,8 +507,8 @@ class PresetBank:
                 "modal_preset": 0,
                 "modal_mirror": 0.3,
                 "modal_feedback": 0.1,
-                # Phi model
-                "phi_distance": 1.5,
+                # Phi model — near-field DVF for ASMR intimacy
+                "phi_distance": 0.3,
                 "phi_elev": 0.0,
                 # System
                 "seed": 20251010,
@@ -1007,6 +1017,9 @@ class PresetBank:
                 "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
                 "burst_floor": 0.35, "burst_phi_mix": 0.6,
                 "lat_rate": 250.0, "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
+                "coherence_spatial": True, "room_mix": 0.15,
+                "polyrhythm_on": True, "polyrhythm_p": 5, "polyrhythm_q": 3,
+                "polyrhythm_rate": 1.0, "polyrhythm_amount": 0.3,
             })
 
         _therapeutic("Delta Reset 3Hz",

@@ -22,6 +22,9 @@ mod dialogue;
 mod binaural;
 mod isochronic;
 mod tinnitus;
+mod dvf;
+mod room;
+mod polyrhythm;
 
 pub use constants::*;
 pub use rng::Rng;
@@ -41,6 +44,9 @@ pub use binaural::BinauralBeat;
 pub use isochronic::IsochronicTone;
 pub use tinnitus::TinnitusNotch;
 pub use noise::SpectralTilt;
+pub use dvf::DvfFilter;
+pub use room::RoomReverb;
+pub use polyrhythm::PolyrhythmClock;
 
 /// aureonoise DSP engine parameters
 #[pyclass]
@@ -224,6 +230,26 @@ pub struct Params {
     #[pyo3(get, set)]
     pub phi_elev: f64,
 
+    // Polyrhythm clock (T5.5)
+    #[pyo3(get, set)]
+    pub polyrhythm_on: bool,
+    #[pyo3(get, set)]
+    pub polyrhythm_p: u32,
+    #[pyo3(get, set)]
+    pub polyrhythm_q: u32,
+    #[pyo3(get, set)]
+    pub polyrhythm_rate: f64,
+    #[pyo3(get, set)]
+    pub polyrhythm_amount: f64,
+
+    // Room reverb (T6.2)
+    #[pyo3(get, set)]
+    pub room_mix: f64,
+
+    // Coherence-driven spatial morphing (T6.3)
+    #[pyo3(get, set)]
+    pub coherence_spatial: bool,
+
     // System
     #[pyo3(get, set)]
     pub seed: u64,
@@ -343,6 +369,19 @@ impl Default for Params {
             phi_distance: 1.5,
             phi_elev: 0.0,
 
+            // Polyrhythm clock
+            polyrhythm_on: false,
+            polyrhythm_p: 3,
+            polyrhythm_q: 2,
+            polyrhythm_rate: 0.5,
+            polyrhythm_amount: 0.5,
+
+            // Room reverb
+            room_mix: 0.0,
+
+            // Coherence spatial morphing
+            coherence_spatial: false,
+
             // System
             seed: 20251010,
         }
@@ -388,6 +427,11 @@ pub struct Engine {
     isochronic: IsochronicTone,
     tinnitus: TinnitusNotch,
     spectral_tilt: SpectralTilt,
+
+    // Sprint 6 modules
+    dvf: DvfFilter,
+    room: RoomReverb,
+    polyrhythm: PolyrhythmClock,
 
     // Stochastic
     ou_pan: OrnsteinUhlenbeck,
@@ -481,6 +525,9 @@ impl Engine {
             isochronic: IsochronicTone::new(),
             tinnitus: TinnitusNotch::new(sr),
             spectral_tilt: SpectralTilt::new(),
+            dvf: DvfFilter::new(),
+            room: RoomReverb::new(sr),
+            polyrhythm: PolyrhythmClock::new(),
             ou_pan: OrnsteinUhlenbeck::new(0.60, 0.0),
             ou_itd: OrnsteinUhlenbeck::new(0.40, 0.0),
             ou_amp: OrnsteinUhlenbeck::new(0.80, 0.0),
@@ -561,6 +608,18 @@ impl Engine {
         }
         self.effective_bilateral_rate = self.params.bilateral_rate;
 
+        // DVF near-field (T6.1) — distance from phi_distance param
+        self.dvf.update_params(self.params.phi_distance, self.sr);
+
+        // Room reverb (T6.2)
+        self.room.set_mix(self.params.room_mix);
+
+        // Polyrhythm clock (T5.5)
+        self.polyrhythm.p = self.params.polyrhythm_p;
+        self.polyrhythm.q = self.params.polyrhythm_q;
+        self.polyrhythm.base_rate = self.params.polyrhythm_rate;
+        self.polyrhythm.active = self.params.polyrhythm_on;
+
         // Modal
         self.modal_engine.set_preset(ModalPreset::from_i32(self.params.modal_preset));
         self.modal_engine.set_active(self.params.modal_on);
@@ -594,6 +653,9 @@ impl Engine {
         self.phi_pan_proc.reset();
         self.bilateral.reset();
         self.modal_engine.reset();
+        self.dvf.reset();
+        self.room.reset();
+        self.polyrhythm.reset();
         self.lat_phase = 0.0;
         self.lat_last_v = 0.0;
         self.samples_to_next = (self.sr * 0.05) as i32;
@@ -721,6 +783,29 @@ impl Engine {
         let itd_scale = self.params.itd_us * 1.0e-6 * self.sr;
         let ext_cfg = ExternalProcessor::prepare(self.params.externalization, self.sr);
 
+        // T6.3: Coherence-driven spatial morphing — pre-compute modulation
+        let coh_spatial_mod = if self.params.coherence_spatial {
+            // High coherence → wider separation (emphasize bilateral effect)
+            let coh = self.dialogue.coherence();
+            let coh_norm = clamp01((coh - 0.6) / 1.2);
+            // Scale: 0.8 at low coherence, 1.3 at high coherence
+            0.8 + 0.5 * coh_norm
+        } else {
+            1.0
+        };
+
+        // Polyrhythm tick for this block
+        let _poly_result = if self.params.polyrhythm_on {
+            self.polyrhythm.tick(self.sr, num_samples as f64)
+        } else {
+            (false, false, false)
+        };
+        let poly_pan_offset = if self.params.polyrhythm_on {
+            self.polyrhythm.pan_offset(self.params.polyrhythm_amount)
+        } else {
+            0.0
+        };
+
         for n in 0..num_samples {
             // Update counters
             self.gap_elapsed += 1;
@@ -784,7 +869,7 @@ impl Engine {
             // Schedule new grain
             self.samples_to_next -= 1;
             if self.samples_to_next <= 0 {
-                self.spawn_grain(wi, vhs_mod, itd_scale);
+                self.spawn_grain(wi, vhs_mod, itd_scale, coh_spatial_mod, poly_pan_offset);
                 self.samples_to_next = self.schedule_gap_samples();
             }
             
@@ -914,8 +999,20 @@ impl Engine {
                 y_r += iso;
             }
 
+            // DVF near-field (T6.1) — per-ear high-shelf boost at close distance
+            if self.dvf.is_active() {
+                let (dl, dr) = self.dvf.process(y_l, y_r, 0.0);
+                y_l = dl;
+                y_r = dr;
+            }
+
             // External externalisation (block-level cross-channel feedback delay)
             self.external_proc.process_sample(&ext_cfg, &mut y_l, &mut y_r);
+
+            // Room reverb (T6.2) — phi-ratio Schroeder allpass
+            let (rl, rr) = self.room.process(y_l, y_r);
+            y_l = rl;
+            y_r = rr;
 
             // Soft clip output
             out_l[n] = soft_tanh(y_l * OUT_DRIVE) / OUT_DRIVE;
@@ -925,7 +1022,7 @@ impl Engine {
         }
     }
     
-    fn spawn_grain(&mut self, wi: usize, vhs_mod: f64, itd_scale: f64) {
+    fn spawn_grain(&mut self, wi: usize, vhs_mod: f64, itd_scale: f64, coh_spatial_mod: f64, poly_pan_offset: f64) {
         let gi = self.grains.find_free();
         if gi < 0 { return; }
         
@@ -1048,13 +1145,21 @@ impl Engine {
             grain.pan = pan;
         }
 
+        // --- Polyrhythm pan offset (T5.5) ---
+        // p_pulse pushes left, q_pulse pushes right, coincidence → center
+        if self.params.polyrhythm_on && poly_pan_offset.abs() > 1e-6 {
+            pan = clamp(pan + poly_pan_offset, -1.0, 1.0);
+            grain.pan = pan;
+        }
+
         // --- Inter-grain decorrelation: quasi-random ring offset ---
         // Each grain reads from a different region of the ring buffer.
         // Offset capped at 4096 samples (~93ms at 44.1kHz) for fresh content.
         grain.ring_offset = (self.w_s2.next() * 4096.0) as usize;
 
-        // Binaural
-        let (pan_l, pan_r) = pan_equal_power(pan, self.params.width);
+        // Binaural — T6.3: coherence-driven spatial morphing scales width
+        let eff_width = self.params.width * coh_spatial_mod;
+        let (pan_l, pan_r) = pan_equal_power(pan, eff_width);
         grain.pan_l = pan_l;
         grain.pan_r = pan_r;
         
