@@ -472,6 +472,12 @@ pub struct Engine {
     block_pan_sum: f64,
     block_pan_weight: f64,
 
+    // Contralateral modal spatial state
+    contra_delay: [f64; 64],   // mono delay ring for ITD
+    contra_delay_pos: usize,
+    contra_shadow_z_l: f64,    // head shadow LP state (left ear)
+    contra_shadow_z_r: f64,    // head shadow LP state (right ear)
+
     // Previous grain state (for hemisphere coupling)
     prev_pan: f64,
     prev_itd: f64,
@@ -561,6 +567,10 @@ impl Engine {
             lfo_flut_phase: 0.0,
             block_pan_sum: 0.0,
             block_pan_weight: 0.0,
+            contra_delay: [0.0; 64],
+            contra_delay_pos: 0,
+            contra_shadow_z_l: 0.0,
+            contra_shadow_z_r: 0.0,
             prev_pan: 0.0,
             prev_itd: 0.0,
             prev_ild: 0.0,
@@ -691,6 +701,10 @@ impl Engine {
         self.lfo_flut_phase = 0.0;
         self.block_pan_sum = 0.0;
         self.block_pan_weight = 0.0;
+        self.contra_delay = [0.0; 64];
+        self.contra_delay_pos = 0;
+        self.contra_shadow_z_l = 0.0;
+        self.contra_shadow_z_r = 0.0;
         self.prev_pan = 0.0;
         self.prev_itd = 0.0;
         self.prev_ild = 0.0;
@@ -1021,9 +1035,83 @@ impl Engine {
             
             // Modal resonator (post grain-sum, pre external)
             if self.params.modal_on {
-                let (ml, mr) = self.modal_engine.process(y_l, y_r);
+                let (ml, mr, contra_mono, contra_amt) = self.modal_engine.process(y_l, y_r);
                 y_l = ml;
                 y_r = mr;
+
+                // Spatialize contralateral signal through phi head model
+                if contra_amt > 1e-6 {
+                    let mirror_pan = -self.burst_centroid;
+
+                    // 1. Equal-power pan
+                    let (mp_l, mp_r) = pan_equal_power(mirror_pan, self.params.width);
+
+                    // 2. ITD from phi head geometry
+                    let head = compute_head_result(
+                        &self.phi_geom, self.sr, mirror_pan, 0.0, self.params.phi_distance,
+                    );
+                    // head.itd_samples is already in samples; scale by user ITD param
+                    let itd_samples = head.itd_samples
+                        * (self.params.itd_us / 700.0);
+                    let half_itd = itd_samples * 0.5;
+
+                    // Write contra_mono to delay ring
+                    self.contra_delay[self.contra_delay_pos] = contra_mono;
+                    self.contra_delay_pos = (self.contra_delay_pos + 1) % 64;
+
+                    // Read with ITD: base delay allows both-direction offsets.
+                    // mirror_pan > 0 → source on right → right ear closer → less delay
+                    let base_delay = 16.0_f64;
+                    let read_l = contra_read_lerp(
+                        &self.contra_delay, self.contra_delay_pos,
+                        base_delay + half_itd,
+                    );
+                    let read_r = contra_read_lerp(
+                        &self.contra_delay, self.contra_delay_pos,
+                        base_delay - half_itd,
+                    );
+
+                    // 3. ILD (level difference)
+                    let ild_db_val = map_ild_db(self.params.ild_db, mirror_pan, 0.5);
+                    let ild_lin = db_to_lin(ild_db_val);
+                    // Contralateral ear is attenuated
+                    let (gain_l, gain_r) = if mirror_pan > 0.0 {
+                        (ild_lin, 1.0)  // source right → left ear attenuated
+                    } else {
+                        (1.0, ild_lin)  // source left → right ear attenuated
+                    };
+
+                    let mut cs_l = read_l * mp_l * gain_l;
+                    let mut cs_r = read_r * mp_r * gain_r;
+
+                    // 4. Head shadow (LP on contralateral ear)
+                    let shadow_cutoff = 800.0 + 7200.0 * (1.0 - mirror_pan.abs());
+                    let shadow_a = (-TWO_PI * shadow_cutoff / self.sr).exp();
+                    if mirror_pan > 0.0 {
+                        // Source on right → shadow on left
+                        let (new_l, new_z) = shadow_lp(cs_l, shadow_a, self.contra_shadow_z_l);
+                        cs_l = new_l;
+                        self.contra_shadow_z_l = new_z;
+                    } else {
+                        // Source on left → shadow on right
+                        let (new_r, new_z) = shadow_lp(cs_r, shadow_a, self.contra_shadow_z_r);
+                        cs_r = new_r;
+                        self.contra_shadow_z_r = new_z;
+                    }
+
+                    // 5. Crossfeed (subtle inter-ear bleed)
+                    let focus = 0.25 + 0.75
+                        * (mirror_pan.abs() * std::f64::consts::FRAC_PI_2).sin().powf(1.35);
+                    let xfeed = (1.0 - focus) * 0.18;
+                    let bl = cs_l;
+                    let br = cs_r;
+                    cs_l = bl + xfeed * br;
+                    cs_r = br + xfeed * bl;
+
+                    // Add spatialized contralateral to output
+                    y_l += cs_l * contra_amt;
+                    y_r += cs_r * contra_amt;
+                }
             }
 
             // Binaural beat (separate from noise path — Wahbeh 2007)
@@ -1376,6 +1464,19 @@ fn allpass(x: f64, a: f64, z: f64) -> (f64, f64) {
 fn shadow_lp(x: f64, a: f64, z: f64) -> (f64, f64) {
     let y = (1.0 - a) * x + a * z;
     (y, y)
+}
+
+/// Read from the 64-sample contralateral delay ring with linear interpolation.
+/// `write_pos` is the next-write position (most recent sample is at write_pos - 1).
+/// `delay` is in fractional samples (clamped to [0, 62]).
+#[inline]
+fn contra_read_lerp(buf: &[f64; 64], write_pos: usize, delay: f64) -> f64 {
+    let d = delay.clamp(0.0, 62.0);
+    let i = d as usize;
+    let frac = d - i as f64;
+    let idx0 = (write_pos + 64 - 1 - i) % 64;
+    let idx1 = (write_pos + 64 - 2 - i) % 64;
+    buf[idx0] * (1.0 - frac) + buf[idx1] * frac
 }
 
 /// Python module initialization

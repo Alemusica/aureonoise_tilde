@@ -2,7 +2,7 @@
 //! 2-pole resonant filter bank for physically-informed material simulation.
 //! Ported from Mirror7 JUCE: modules/core/modal_engine.hpp
 
-use crate::constants::{PI, TWO_PI};
+use crate::constants::TWO_PI;
 use crate::math::{clamp, clamp01};
 
 /// ln(1000) — used in T60-to-pole-radius conversion (60 dB = factor 1000)
@@ -241,12 +241,15 @@ impl ModalEngine {
         self.modes.len()
     }
 
-    /// Process one stereo sample pair. Returns (left, right).
-    /// When inactive or empty, passes input through unchanged.
+    /// Process one stereo sample pair.
+    /// Returns `(out_l, out_r, contra_mono, contra_amt)`.
+    /// `contra_mono` is the mono wet signal to be spatialized by the caller;
+    /// `contra_amt` is the contralateral strength (0 = inactive).
+    /// When inactive or empty, passes input through unchanged with zero contra.
     #[inline]
-    pub fn process(&mut self, input_l: f64, input_r: f64) -> (f64, f64) {
+    pub fn process(&mut self, input_l: f64, input_r: f64) -> (f64, f64, f64, f64) {
         if !self.active || self.modes.is_empty() {
-            return (input_l, input_r);
+            return (input_l, input_r, 0.0, 0.0);
         }
 
         // Mix input with feedback
@@ -274,32 +277,20 @@ impl ModalEngine {
         self.prev_out_l = sum_l;
         self.prev_out_r = sum_r;
 
-        // Contralateral spatial mirror
+        // Compute contralateral signal (mono wet) and amount.
+        // The caller (lib.rs) spatializes this through the phi head model.
         let mirror_amt = self.contralateral * self.mirror_intensity;
-        if mirror_amt > 1e-6 {
-            // mirror_pan: -1 = full left, +1 = full right
-            // Route modal output toward the mirror position
-            let mp = clamp(self.mirror_pan, -1.0, 1.0);
-            // Equal-power pan for the mirrored portion
-            let angle = (mp + 1.0) * 0.25 * PI;  // 0 to PI/2
-            let mirror_l = angle.cos();
-            let mirror_r = angle.sin();
+        let (contra_mono, contra_amt) = if mirror_amt > 1e-6 {
+            ((sum_l + sum_r) * 0.5, mirror_amt)
+        } else {
+            (0.0, 0.0)
+        };
 
-            // Blend: (1-amt)*original + amt*mirrored
-            let mono_wet = (sum_l + sum_r) * 0.5;
-            let final_l = sum_l * (1.0 - mirror_amt) + mono_wet * mirror_l * mirror_amt;
-            let final_r = sum_r * (1.0 - mirror_amt) + mono_wet * mirror_r * mirror_amt;
-
-            let out_l = input_l * (1.0 - self.mix) + final_l * self.mix;
-            let out_r = input_r * (1.0 - self.mix) + final_r * self.mix;
-            return (out_l, out_r);
-        }
-
-        // Normal (no mirror) path
+        // Direct output: dry/wet mix (no internal mirror panning)
         let out_l = (1.0 - self.mix) * input_l + self.mix * sum_l;
         let out_r = (1.0 - self.mix) * input_r + self.mix * sum_r;
 
-        (out_l, out_r)
+        (out_l, out_r, contra_mono, contra_amt)
     }
 
     /// Reset all resonator state (delay lines and feedback memory).
@@ -413,14 +404,14 @@ mod tests {
                 .fold(0.0, f64::max);
 
             // Impulse
-            let (_, _) = eng.process(1.0, 1.0);
+            let (_, _, _, _) = eng.process(1.0, 1.0);
 
             // Run for 3x the longest T60
             let n = (max_decay * sr * 3.0) as usize;
             let mut last_l = 0.0;
             let mut last_r = 0.0;
             for _ in 0..n {
-                let (l, r) = eng.process(0.0, 0.0);
+                let (l, r, _, _) = eng.process(0.0, 0.0);
                 last_l = l;
                 last_r = r;
             }
@@ -453,7 +444,7 @@ mod tests {
             state ^= state >> 7;
             state ^= state << 17;
             let v = (state as f64) / (u64::MAX as f64) * 2.0 - 1.0;
-            let (l, r) = eng.process(v, -v);
+            let (l, r, _, _) = eng.process(v, -v);
             assert!(l.is_finite(), "NaN/Inf in left channel");
             assert!(r.is_finite(), "NaN/Inf in right channel");
         }
@@ -468,9 +459,9 @@ mod tests {
         eng.set_mirror(0.0);
 
         // Feed identical L/R; output must be identical
-        let (_, _) = eng.process(1.0, 1.0);
+        let (_, _, _, _) = eng.process(1.0, 1.0);
         for _ in 0..256 {
-            let (l, r) = eng.process(0.0, 0.0);
+            let (l, r, _, _) = eng.process(0.0, 0.0);
             assert!(
                 (l - r).abs() < 1e-15,
                 "mirror=0 should produce identical L/R, got L={} R={}",
@@ -489,12 +480,12 @@ mod tests {
         eng.set_mirror(0.8);
 
         // Impulse with identical L/R
-        let (_, _) = eng.process(1.0, 1.0);
+        let (_, _, _, _) = eng.process(1.0, 1.0);
 
         // After some samples, L and R should diverge due to detuning
         let mut diff_found = false;
         for _ in 0..512 {
-            let (l, r) = eng.process(0.0, 0.0);
+            let (l, r, _, _) = eng.process(0.0, 0.0);
             if (l - r).abs() > 1e-6 {
                 diff_found = true;
                 break;
@@ -509,7 +500,7 @@ mod tests {
         eng.set_preset(ModalPreset::Wood);
         eng.set_active(false);
 
-        let (l, r) = eng.process(0.42, -0.37);
+        let (l, r, _, _) = eng.process(0.42, -0.37);
         assert!((l - 0.42).abs() < 1e-15);
         assert!((r - -0.37).abs() < 1e-15);
     }
@@ -525,10 +516,10 @@ mod tests {
         eng_nofb.set_active(true);
         eng_nofb.set_mix(1.0);
         eng_nofb.set_feedback(0.0);
-        let (_, _) = eng_nofb.process(1.0, 1.0);
+        let (_, _, _, _) = eng_nofb.process(1.0, 1.0);
         let mut energy_nofb = 0.0;
         for _ in 0..n {
-            let (l, _) = eng_nofb.process(0.0, 0.0);
+            let (l, _, _, _) = eng_nofb.process(0.0, 0.0);
             energy_nofb += l * l;
         }
 
@@ -538,10 +529,10 @@ mod tests {
         eng_fb.set_active(true);
         eng_fb.set_mix(1.0);
         eng_fb.set_feedback(0.4);
-        let (_, _) = eng_fb.process(1.0, 1.0);
+        let (_, _, _, _) = eng_fb.process(1.0, 1.0);
         let mut energy_fb = 0.0;
         for _ in 0..n {
-            let (l, _) = eng_fb.process(0.0, 0.0);
+            let (l, _, _, _) = eng_fb.process(0.0, 0.0);
             energy_fb += l * l;
         }
 
@@ -560,7 +551,7 @@ mod tests {
         eng.set_active(true);
         eng.set_mix(0.0);
 
-        let (l, r) = eng.process(0.5, -0.3);
+        let (l, r, _, _) = eng.process(0.5, -0.3);
         assert!((l - 0.5).abs() < 1e-12);
         assert!((r - -0.3).abs() < 1e-12);
     }
@@ -573,19 +564,19 @@ mod tests {
         eng.set_mix(1.0);
 
         // Feed impulse and let it ring
-        let (_, _) = eng.process(1.0, 1.0);
+        let (_, _, _, _) = eng.process(1.0, 1.0);
         for _ in 0..256 {
             eng.process(0.0, 0.0);
         }
 
         // Output should be non-zero before reset
-        let (l_before, _) = eng.process(0.0, 0.0);
+        let (l_before, _, _, _) = eng.process(0.0, 0.0);
         assert!(l_before.abs() > 1e-10);
 
         eng.reset();
 
         // After reset, silence in -> silence out
-        let (l_after, r_after) = eng.process(0.0, 0.0);
+        let (l_after, r_after, _, _) = eng.process(0.0, 0.0);
         assert!(l_after.abs() < 1e-15);
         assert!(r_after.abs() < 1e-15);
     }

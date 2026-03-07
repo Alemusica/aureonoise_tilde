@@ -168,7 +168,7 @@ class AureonoiseApp:
                     dpg.add_checkbox(
                         label="Bilateral On", default_value=False, tag="cb_bilateral_on",
                         callback=self._on_bilateral_toggle)
-                    self._slider("bilateral_rate", "Bilateral Rate (Hz)", 0.5, 2.0, 1.0)
+                    self._slider("bilateral_rate", "Bilateral Rate (Hz)", 0.3, 6.0, 1.0)
                     self._slider("bilateral_amount", "Bilateral Amount", 0.0, 1.0, 0.8)
 
                 # ── Envelope tab ────────────────────────────────────
@@ -395,14 +395,20 @@ class AureonoiseApp:
                     dpg.add_spacer(height=5)
                     with dpg.group(horizontal=True):
                         dpg.add_checkbox(label="Thermo", default_value=True,
+                            tag="cb_thermo",
                             callback=lambda s, a, u: self._set_param(u, a),
                             user_data="thermo")
                         dpg.add_checkbox(label="Lattice", default_value=True,
+                            tag="cb_lattice",
                             callback=lambda s, a, u: self._set_param(u, a),
                             user_data="lattice")
                         dpg.add_checkbox(label="Burst", default_value=True,
-                            callback=lambda s, a, u: self._set_param(u, a),
+                            tag="cb_burst",
+                            callback=self._on_burst_toggle,
                             user_data="burst")
+                    dpg.add_separator()
+                    self._slider("burst_floor", "Burst Floor", 0.0, 1.0, 0.3)
+                    self._slider("burst_phi_mix", "Burst Phi Mix", 0.0, 1.0, 0.5)
                     dpg.add_separator()
                     self._slider("temperature", "Temperature", 0.0, 1.0, 0.45)
                     self._slider("lat_rate", "Lattice Rate", 1.0, 2000.0, 250.0, log=True)
@@ -580,6 +586,16 @@ class AureonoiseApp:
         """Set parameter on audio engine."""
         self.audio.set_param(name, value)
 
+        # Contralateral dependency: auto-enable modal_on and burst
+        if name == "modal_contralateral" and float(value) > 0.01:
+            if not dpg.get_value("cb_modal_on"):
+                dpg.set_value("cb_modal_on", True)
+                self.audio.set_param("modal_on", True)
+            if not dpg.get_value("cb_burst"):
+                dpg.set_value("cb_burst", True)
+                self.audio.set_param("burst", True)
+            self._update_feature_summary()
+
     # ── Mutual exclusion / dependency toggle handlers ────────────────
 
     def _on_binaural_toggle(self, sender, value, user_data):
@@ -632,7 +648,19 @@ class AureonoiseApp:
         self._update_feature_summary()
 
     def _on_modal_toggle(self, sender, value, user_data):
-        self._set_param("modal_on", value)
+        self.audio.set_param("modal_on", value)
+        if not value:
+            # Reset contralateral when modal is off
+            self.audio.set_param("modal_contralateral", 0.0)
+            _safe_set("sl_modal_contralateral", 0.0)
+        self._update_feature_summary()
+
+    def _on_burst_toggle(self, sender, value, user_data):
+        self.audio.set_param("burst", value)
+        if not value:
+            # Reset contralateral when burst is off
+            self.audio.set_param("modal_contralateral", 0.0)
+            _safe_set("sl_modal_contralateral", 0.0)
         self._update_feature_summary()
 
     def _update_feature_summary(self):
@@ -665,6 +693,12 @@ class AureonoiseApp:
                 parts.append("Polyrhythm")
             if dpg.get_value("cb_modal_on"):
                 parts.append("Modal")
+            try:
+                contra = dpg.get_value("sl_modal_contralateral")
+                if contra is not None and contra > 0:
+                    parts.append("Contralateral Mirror")
+            except Exception:
+                pass
         except Exception:
             pass
         summary = " + ".join(parts) if parts else "No active features"
@@ -748,6 +782,9 @@ class AureonoiseApp:
         _safe_set("cb_bilateral_nesting", params.get("bilateral_nesting", False))
         _safe_set("cb_coherence_spatial", params.get("coherence_spatial", False))
         _safe_set("cb_polyrhythm_on", params.get("polyrhythm_on", False))
+        _safe_set("cb_thermo", params.get("thermo", True))
+        _safe_set("cb_lattice", params.get("lattice", True))
+        _safe_set("cb_burst", params.get("burst", True))
 
         # Noise mode radio
         nm = params.get("noise_mode", 1)
