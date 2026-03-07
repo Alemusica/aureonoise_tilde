@@ -2,7 +2,7 @@
 //! 2-pole resonant filter bank for physically-informed material simulation.
 //! Ported from Mirror7 JUCE: modules/core/modal_engine.hpp
 
-use crate::constants::TWO_PI;
+use crate::constants::{PI, TWO_PI};
 use crate::math::{clamp, clamp01};
 
 /// ln(1000) — used in T60-to-pole-radius conversion (60 dB = factor 1000)
@@ -137,6 +137,10 @@ pub struct ModalEngine {
     // Feedback state
     prev_out_l: f64,
     prev_out_r: f64,
+    // Contralateral spatial mirror
+    mirror_pan: f64,       // target mirror position (negated burst centroid)
+    mirror_intensity: f64, // burst weight controlling mirror strength
+    pub contralateral: f64,    // user param: overall contralateral strength
 }
 
 impl ModalEngine {
@@ -155,6 +159,9 @@ impl ModalEngine {
             sr,
             prev_out_l: 0.0,
             prev_out_r: 0.0,
+            mirror_pan: 0.0,
+            mirror_intensity: 0.0,
+            contralateral: 0.0,
         }
     }
 
@@ -219,6 +226,16 @@ impl ModalEngine {
         self.active = active;
     }
 
+    /// Set contralateral mirror state (called once per block, not per sample).
+    /// centroid: burst cluster center of mass (-1..1)
+    /// intensity: burst weight controlling mirror strength
+    /// amount: user param (0..1) overall contralateral strength
+    pub fn set_contralateral(&mut self, centroid: f64, intensity: f64, amount: f64) {
+        self.mirror_pan = -centroid;  // mirror = opposite hemisphere
+        self.mirror_intensity = intensity;
+        self.contralateral = amount;
+    }
+
     /// Number of active resonant modes.
     pub fn mode_count(&self) -> usize {
         self.modes.len()
@@ -257,7 +274,28 @@ impl ModalEngine {
         self.prev_out_l = sum_l;
         self.prev_out_r = sum_r;
 
-        // Wet/dry
+        // Contralateral spatial mirror
+        let mirror_amt = self.contralateral * self.mirror_intensity;
+        if mirror_amt > 1e-6 {
+            // mirror_pan: -1 = full left, +1 = full right
+            // Route modal output toward the mirror position
+            let mp = clamp(self.mirror_pan, -1.0, 1.0);
+            // Equal-power pan for the mirrored portion
+            let angle = (mp + 1.0) * 0.25 * PI;  // 0 to PI/2
+            let mirror_l = angle.cos();
+            let mirror_r = angle.sin();
+
+            // Blend: (1-amt)*original + amt*mirrored
+            let mono_wet = (sum_l + sum_r) * 0.5;
+            let final_l = sum_l * (1.0 - mirror_amt) + mono_wet * mirror_l * mirror_amt;
+            let final_r = sum_r * (1.0 - mirror_amt) + mono_wet * mirror_r * mirror_amt;
+
+            let out_l = input_l * (1.0 - self.mix) + final_l * self.mix;
+            let out_r = input_r * (1.0 - self.mix) + final_r * self.mix;
+            return (out_l, out_r);
+        }
+
+        // Normal (no mirror) path
         let out_l = (1.0 - self.mix) * input_l + self.mix * sum_l;
         let out_r = (1.0 - self.mix) * input_r + self.mix * sum_r;
 
@@ -274,6 +312,8 @@ impl ModalEngine {
         }
         self.prev_out_l = 0.0;
         self.prev_out_r = 0.0;
+        self.mirror_pan = 0.0;
+        self.mirror_intensity = 0.0;
     }
 
     // -- internal -------------------------------------------------------

@@ -472,7 +472,7 @@ EXPECTED_KEYS = {
     "aureo_decay", "aureo_stride", "aureo_harmonics",
     "quantum_detail", "quantum_base", "velvet_density",
     "modal_on", "modal_mix", "modal_decay", "modal_preset",
-    "modal_mirror", "modal_feedback",
+    "modal_mirror", "modal_feedback", "modal_contralateral",
     "feedback_on", "temp_ramp_sec",
     "binaural_on", "binaural_carrier_hz", "binaural_beat_hz", "binaural_level",
     "isochronic_on", "isochronic_carrier_hz", "isochronic_rate_hz",

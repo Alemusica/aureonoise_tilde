@@ -5,6 +5,7 @@ DearPyGui-based interface for real-time control.
 """
 
 from typing import Optional
+import math
 import threading
 import time
 
@@ -56,6 +57,7 @@ class AureonoiseApp:
         self.running = False
         self._meter_thread: Optional[threading.Thread] = None
         self._preset_bank = PresetBank()
+        self._log_sliders: dict[str, tuple[float, float]] = {}
 
     def run(self):
         """Run the application."""
@@ -180,15 +182,7 @@ class AureonoiseApp:
                 # ── Timbre tab ──────────────────────────────────────
                 with dpg.tab(label="Timbre"):
                     dpg.add_spacer(height=5)
-                    dpg.add_combo(
-                        ["White", "Pink", "Brown"],
-                        default_value="Pink",
-                        label="Noise Color",
-                        callback=lambda s, a, u: self._set_param("noise_color",
-                            {"White": 0, "Pink": 1, "Brown": 2}.get(a, 1)),
-                        width=150,
-                    )
-                    self._slider("color_amt", "Color Amount", 0.0, 1.0, 0.65)
+                    dpg.add_text("Noise color controlled in Noise tab", color=COLORS["text_dim"])
                     dpg.add_separator()
                     self._slider("vhs_wow", "VHS Wow", 0.0, 1.0, 0.35)
                     self._slider("vhs_flutter", "VHS Flutter", 0.0, 1.0, 0.25)
@@ -290,6 +284,13 @@ class AureonoiseApp:
                     self._slider("modal_decay", "Decay", 0.0, 1.0, 0.5)
                     self._slider("modal_mirror", "Mirror", 0.0, 1.0, 0.3)
                     self._slider("modal_feedback", "Feedback", 0.0, 1.0, 0.1)
+                    dpg.add_spacer(height=8)
+                    dpg.add_text("Contralateral Mirror", color=COLORS["section"])
+                    dpg.add_text(
+                        "Routes modal response to opposite hemisphere of burst events.",
+                        color=COLORS["text_dim"],
+                    )
+                    self._slider("modal_contralateral", "Contralateral", 0.0, 1.0, 0.0)
 
                 # ── Binaural tab ───────────────────────────────────
                 with dpg.tab(label="Binaural"):
@@ -519,6 +520,8 @@ class AureonoiseApp:
         fmt = "%.3f" if vmax <= 2.0 else "%.1f"
 
         if log:
+            self._log_sliders[param] = (vmin, vmax)
+
             def log_cb(sender, app_data, user_data):
                 p, lo, hi = user_data
                 v = lo * ((hi / lo) ** app_data)
@@ -713,11 +716,21 @@ class AureonoiseApp:
             sl_tag = f"sl_{k}"
             val_tag = f"val_{k}"
 
-            # Regular sliders (float and int)
-            try:
-                dpg.set_value(sl_tag, v)
-            except Exception:
-                pass
+            # Log sliders: reverse-compute 0-1 normalized value
+            if k in self._log_sliders:
+                lo, hi = self._log_sliders[k]
+                try:
+                    clamped = max(lo, min(float(v), hi))
+                    norm = math.log(clamped / lo) / math.log(hi / lo)
+                    dpg.set_value(sl_tag, max(0.0, min(norm, 1.0)))
+                except Exception:
+                    pass
+            else:
+                # Regular sliders (float and int)
+                try:
+                    dpg.set_value(sl_tag, v)
+                except Exception:
+                    pass
 
             # Log-slider companion text
             try:
@@ -804,7 +817,13 @@ class AureonoiseApp:
     def _on_reset(self):
         """Reset button handler."""
         self.audio.reset()
-        dpg.set_value("status", "Reset")
+        dpg.set_value("status", "Reset — DSP state cleared")
+        # Clear dialogue metrics display
+        _safe_set("meter_coherence", 0)
+        _safe_configure("meter_coherence", overlay="0.000")
+        _safe_set("txt_handshake_count", "0")
+        _safe_set("txt_handshake_ratio", "0.000")
+        _safe_set("txt_coherence_mean", "0.000")
 
     # ── Meter / coherence update thread ─────────────────────────────
 

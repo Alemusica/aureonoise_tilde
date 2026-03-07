@@ -183,6 +183,8 @@ pub struct Params {
     pub modal_mirror: f64,
     #[pyo3(get, set)]
     pub modal_feedback: f64,
+    #[pyo3(get, set)]
+    pub modal_contralateral: f64,  // 0.0-1.0, strength of spatial mirror
 
     // Coherence feedback (BAC-inspired closed-loop)
     /// Enable coherence feedback loop (opt-in for therapeutic presets)
@@ -340,6 +342,7 @@ impl Default for Params {
             modal_preset: 1, // Wood
             modal_mirror: 0.3,
             modal_feedback: 0.1,
+            modal_contralateral: 0.0,
 
             // Feedback
             feedback_on: false,
@@ -406,6 +409,8 @@ pub struct Engine {
 
     // Burst position modulation
     burst_engine: BurstEngine,
+    burst_centroid: f64,      // EMA of burst-weighted grain pan positions
+    burst_centroid_alpha: f64, // EMA smoothing factor (~25ms time constant)
 
     // External externalisation (block-level cross-channel feedback delay)
     external_proc: ExternalProcessor,
@@ -463,6 +468,10 @@ pub struct Engine {
     lfo_wow_phase: f64,
     lfo_flut_phase: f64,
 
+    // Weighted-average pan per block (for DVF near-field)
+    block_pan_sum: f64,
+    block_pan_weight: f64,
+
     // Previous grain state (for hemisphere coupling)
     prev_pan: f64,
     prev_itd: f64,
@@ -514,6 +523,8 @@ impl Engine {
                 floor: 0.35,
                 phi_mix: 0.6,
             },
+            burst_centroid: 0.0,
+            burst_centroid_alpha: 1.0 / (0.025 * sr),  // 25ms tau at sample rate
             external_proc: ExternalProcessor::new(),
             dialogue: DialogueSystem::new(),
             phi_pan_proc: PhiPan::new(),
@@ -548,6 +559,8 @@ impl Engine {
             temp_target: init_temp,
             lfo_wow_phase: 0.0,
             lfo_flut_phase: 0.0,
+            block_pan_sum: 0.0,
+            block_pan_weight: 0.0,
             prev_pan: 0.0,
             prev_itd: 0.0,
             prev_ild: 0.0,
@@ -627,6 +640,7 @@ impl Engine {
         self.modal_engine.set_decay_scale(self.params.modal_decay);
         self.modal_engine.set_mirror(self.params.modal_mirror);
         self.modal_engine.set_feedback(self.params.modal_feedback);
+        self.modal_engine.contralateral = self.params.modal_contralateral;
     }
 
     /// Get current parameters
@@ -648,6 +662,7 @@ impl Engine {
         self.burst_engine.enabled = self.params.burst;
         self.burst_engine.floor = self.params.burst_floor;
         self.burst_engine.phi_mix = self.params.burst_phi_mix;
+        self.burst_centroid = 0.0;
         self.external_proc.reset();
         self.dialogue.reset();
         self.phi_pan_proc.reset();
@@ -674,6 +689,8 @@ impl Engine {
         self.temp_target = self.params.temperature;
         self.lfo_wow_phase = 0.0;
         self.lfo_flut_phase = 0.0;
+        self.block_pan_sum = 0.0;
+        self.block_pan_weight = 0.0;
         self.prev_pan = 0.0;
         self.prev_itd = 0.0;
         self.prev_ild = 0.0;
@@ -742,11 +759,14 @@ impl Engine {
         let num_samples = out_l.len().min(out_r.len());
 
         // --- Temperature ramp (T4.2) ---
-        if self.temp_ramp_samples > 0.0 && self.temp_ramp_elapsed < self.temp_ramp_samples {
+        // Ramp computes baseline; feedback modulates on top. No overwrite conflict.
+        let ramped_temp = if self.temp_ramp_samples > 0.0 && self.temp_ramp_elapsed < self.temp_ramp_samples {
             self.temp_ramp_elapsed += num_samples as f64;
             let t = clamp01(self.temp_ramp_elapsed / self.temp_ramp_samples);
-            self.effective_temp = self.temp_start + t * (self.temp_target - self.temp_start);
-        }
+            self.temp_start + t * (self.temp_target - self.temp_start)
+        } else {
+            self.effective_temp
+        };
 
         // --- Coherence feedback loop (T4.1, BAC-inspired) ---
         if self.params.feedback_on {
@@ -757,7 +777,7 @@ impl Engine {
             let alpha = clamp(num_samples as f64 / (5.0 * self.sr), 0.0001, 0.05);
             self.coh_slow = (1.0 - alpha) * self.coh_slow + alpha * coh_norm;
 
-            let base_temp = self.effective_temp;
+            let base_temp = ramped_temp;
             let base_rate = self.params.bilateral_rate;
 
             if self.coh_slow > 0.7 {
@@ -770,10 +790,23 @@ impl Engine {
                 let factor = (0.3 - self.coh_slow) / 0.3;
                 self.effective_temp = clamp(base_temp * (1.0 + 0.10 * factor), 0.10, 0.50);
                 self.effective_bilateral_rate = clamp(base_rate * (1.0 + 0.30 * factor), 0.3, 6.0);
+            } else {
+                self.effective_temp = ramped_temp;
             }
             // Update bilateral rate from feedback
             self.bilateral.set_rate(self.effective_bilateral_rate);
+        } else {
+            self.effective_temp = ramped_temp;
         }
+
+        // Weighted-average pan from previous block's grains (for DVF near-field)
+        let avg_pan = if self.block_pan_weight > 1e-9 {
+            clamp(self.block_pan_sum / self.block_pan_weight, -1.0, 1.0)
+        } else {
+            0.0
+        };
+        self.block_pan_sum = 0.0;
+        self.block_pan_weight = 0.0;
 
         // Update tinnitus notch filter (only recalcs on param change)
         self.tinnitus.set_params(self.params.tinnitus_notch_hz, self.params.tinnitus_notch_q, self.sr);
@@ -809,6 +842,20 @@ impl Engine {
         } else {
             0.0
         };
+
+        // Modal contralateral spatial mirror — set once per block
+        if self.params.modal_on && self.params.modal_contralateral > 1e-6 {
+            let bw = if self.burst_engine.enabled {
+                self.burst_engine.compute_weight(&self.hawkes)
+            } else { 0.0 };
+            self.modal_engine.set_contralateral(
+                self.burst_centroid,
+                bw,
+                self.params.modal_contralateral,
+            );
+        } else {
+            self.modal_engine.set_contralateral(0.0, 0.0, 0.0);
+        }
 
         for n in 0..num_samples {
             // Update counters
@@ -1006,7 +1053,7 @@ impl Engine {
 
             // DVF near-field (T6.1) — per-ear high-shelf boost at close distance
             if self.dvf.is_active() {
-                let (dl, dr) = self.dvf.process(y_l, y_r, 0.0);
+                let (dl, dr) = self.dvf.process(y_l, y_r, avg_pan);
                 y_l = dl;
                 y_r = dr;
             }
@@ -1137,6 +1184,18 @@ impl Engine {
             grain.amp *= br.amp_scale;
         }
 
+        // Update burst centroid EMA (tracks cluster center of mass)
+        if self.burst_engine.enabled {
+            let bw = self.burst_engine.compute_weight(&self.hawkes);
+            if bw > 0.01 {
+                let alpha = clamp(self.burst_centroid_alpha * bw, 0.0001, 0.1);
+                self.burst_centroid = (1.0 - alpha) * self.burst_centroid + alpha * pan;
+            } else {
+                // Decay toward center when no burst
+                self.burst_centroid *= 0.999;
+            }
+        }
+
         // --- Phi-Pan (phi-ratio alternation) ---
         if self.params.phi_pan {
             pan = self.phi_pan_proc.next(pan);
@@ -1162,6 +1221,10 @@ impl Engine {
         // Offset capped at 4096 samples (~93ms at 44.1kHz) for fresh content.
         grain.ring_offset = (self.w_s2.next() * 4096.0) as usize;
 
+        // Accumulate weighted pan for DVF near-field (block-level average)
+        self.block_pan_sum += pan * grain.amp;
+        self.block_pan_weight += grain.amp;
+
         // Binaural — T6.3: coherence-driven spatial morphing scales width
         let eff_width = self.params.width * coh_spatial_mod;
         let (pan_l, pan_r) = pan_equal_power(pan, eff_width);
@@ -1171,7 +1234,7 @@ impl Engine {
         // ITD: phi-model ellipsoid Woodworth (direction-dependent head radius)
         let max_itd_samples = clamp(self.params.itd_us, 0.0, 1600.0) * 1.0e-6 * self.sr;
         let mut itd = if max_itd_samples > 1e-9 {
-            let phi_head = compute_head_result(&self.phi_geom, self.sr, pan, 0.0, 1.0);
+            let phi_head = compute_head_result(&self.phi_geom, self.sr, pan, 0.0, self.params.phi_distance);
             let scale = max_itd_samples / self.phi_itd_max;
             let base_itd = phi_head.itd_samples * scale;
             // Stochastic jitter (±8% of max)

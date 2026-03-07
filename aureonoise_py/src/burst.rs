@@ -50,7 +50,8 @@ impl BurstEngine {
         if base <= 1.0e-12 {
             return 0.0;
         }
-        clamp01((hawkes.intensity() - base) / (base * 4.0))
+        let raw = clamp01((hawkes.intensity() - base) / (base * 4.0));
+        if raw < self.floor { 0.0 } else { raw }
     }
 
     /// Apply position modulation to a grain's pan and amplitude.
@@ -68,20 +69,20 @@ impl BurstEngine {
         dur_norm: f64,
         gap_norm: f64,
     ) -> BurstResult {
-        let clamped_pan = pan.clamp(-1.0, 1.0);
+        let input_pan = pan.clamp(-1.0, 1.0);
         let w = self.compute_weight(hawkes);
 
         if w < 1.0e-6 {
             return BurstResult {
-                pan: clamped_pan,
+                pan: input_pan,
                 amp_scale: 1.0,
             };
         }
 
         let dur = clamp01(dur_norm);
         let gap = clamp01(gap_norm);
-        let sign = if clamped_pan >= 0.0 { 1.0 } else { -1.0 };
-        let mut mag = clamped_pan.abs();
+        let sign = if input_pan >= 0.0 { 1.0 } else { -1.0 };
+        let mut mag = input_pan.abs();
 
         // Long grains -> center pull (intimate, ASMR proximity)
         let center_pull = w * (0.35 + 0.45 * dur);
@@ -91,11 +92,16 @@ impl BurstEngine {
         let edge_push = w * (0.35 + 0.30 * (1.0 - dur));
         mag = (mag + edge_push * (1.0 - gap)).clamp(0.0, 1.0);
 
+        // Blend raw pan with burst-modified pan via phi_mix (0=no burst spatial, 1=full)
+        let burst_pan = (sign * mag).clamp(-1.0, 1.0);
+        let blend = self.phi_mix * w;
+        let final_pan = ((1.0 - blend) * input_pan + blend * burst_pan).clamp(-1.0, 1.0);
+
         // Amplitude boost: louder during bursts, proportional to duration
         let amp_scale = 1.0 + w * (0.6 + 0.4 * dur);
 
         BurstResult {
-            pan: (sign * mag).clamp(-1.0, 1.0),
+            pan: final_pan,
             amp_scale,
         }
     }

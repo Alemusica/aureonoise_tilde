@@ -98,6 +98,7 @@ class Preset:
             "modal_preset": params.modal_preset,
             "modal_mirror": params.modal_mirror,
             "modal_feedback": params.modal_feedback,
+            "modal_contralateral": params.modal_contralateral,
             # Feedback
             "feedback_on": params.feedback_on,
             "temp_ramp_sec": params.temp_ramp_sec,
@@ -202,6 +203,7 @@ class PresetBank:
             # Modal
             "modal_on": False, "modal_mix": 0.3, "modal_decay": 0.5,
             "modal_preset": 0, "modal_mirror": 0.3, "modal_feedback": 0.1,
+            "modal_contralateral": 0.0,
             # Feedback
             "feedback_on": False, "temp_ramp_sec": 0.0,
             # Binaural
@@ -388,12 +390,13 @@ class PresetBank:
         })
 
         _preset("Hemispheric Bridge",
-            "Alpha-band bilateral stimulation for corpus callosum synchronization", {
+            "Alpha-band bilateral stimulation for corpus callosum synchronization with contralateral mirror", {
             "rate": 8.0, "baselen_ms": 100.0, "len_phi": 0.7,
             "hemis_coupling": 0.85, "color_amt": 0.7,
             "vhs_wow": 0.35, "vhs_flutter": 0.25,
             "env_attack": 0.15, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
-            "thermo": True, "lattice": True, "burst": False,
+            "thermo": True, "lattice": True, "burst": True,
+            "burst_floor": 0.4, "burst_phi_mix": 0.5,
             "temperature": 0.35,
             "externalization": 0.35,
             "dialogue_on": True, "dialogue_strength": 0.7,
@@ -401,7 +404,9 @@ class PresetBank:
             "phi_pan": False, "bilateral_on": True,
             "bilateral_amount": 0.75, "bilateral_nesting": False,
             "binaural_on": False, "isochronic_on": False,
-            "feedback_on": False, "modal_on": False,
+            "feedback_on": False,
+            "modal_on": True, "modal_preset": 1, "modal_mix": 0.2,
+            "modal_decay": 0.5, "modal_contralateral": 0.5,
             "polyrhythm_on": False, "coherence_spatial": False,
         })
 
@@ -518,11 +523,12 @@ class PresetBank:
         })
 
         _preset("CC Maximum",
-            "Maximum corpus callosum drive (bilateral 1.0 Hz, dialogue 0.85, feedback loop)", {
+            "Maximum corpus callosum drive (bilateral 1.0 Hz, dialogue 0.85, feedback loop, contralateral mirror)", {
             "rate": 8.0, "baselen_ms": 100.0, "len_phi": 0.7,
             "hemis_coupling": 0.85,
             "env_attack": 0.15, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
-            "thermo": True, "lattice": True, "burst": False,
+            "thermo": True, "lattice": True, "burst": True,
+            "burst_floor": 0.3, "burst_phi_mix": 0.6,
             "temperature": 0.22,
             "externalization": 0.35,
             "dialogue_on": True, "dialogue_strength": 0.85,
@@ -531,7 +537,8 @@ class PresetBank:
             "bilateral_amount": 0.9, "bilateral_nesting": True,
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": True, "temp_ramp_sec": 20.0,
-            "modal_on": False,
+            "modal_on": True, "modal_preset": 2, "modal_mix": 0.25,
+            "modal_decay": 0.4, "modal_contralateral": 0.7,
             "coherence_spatial": True, "room_mix": 0.15,
             "polyrhythm_on": True, "polyrhythm_p": 5, "polyrhythm_q": 3,
             "polyrhythm_rate": 1.0, "polyrhythm_amount": 0.3,
