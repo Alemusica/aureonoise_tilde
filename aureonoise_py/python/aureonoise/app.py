@@ -165,8 +165,7 @@ class AureonoiseApp:
                         user_data="phi_pan")
                     dpg.add_checkbox(
                         label="Bilateral On", default_value=False, tag="cb_bilateral_on",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="bilateral_on")
+                        callback=self._on_bilateral_toggle)
                     self._slider("bilateral_rate", "Bilateral Rate (Hz)", 0.5, 2.0, 1.0)
                     self._slider("bilateral_amount", "Bilateral Amount", 0.0, 1.0, 0.8)
 
@@ -240,8 +239,7 @@ class AureonoiseApp:
                     dpg.add_text("Interhemispheric Coherence", color=COLORS["section"])
                     dpg.add_checkbox(
                         label="Dialogue On", default_value=True, tag="cb_dialogue_on",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="dialogue_on")
+                        callback=self._on_dialogue_toggle)
                     dpg.add_spacer(height=5)
                     self._slider("dialogue_strength", "Strength", 0.0, 1.0, 0.6)
                     self._slider("dialogue_memory", "Memory", 0.0, 1.0, 0.5)
@@ -276,8 +274,7 @@ class AureonoiseApp:
                     dpg.add_text("Modal Resonator", color=COLORS["section"])
                     dpg.add_checkbox(
                         label="Modal On", default_value=False, tag="cb_modal_on",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="modal_on")
+                        callback=self._on_modal_toggle)
                     dpg.add_spacer(height=5)
                     dpg.add_combo(
                         MODAL_PRESETS,
@@ -305,8 +302,7 @@ class AureonoiseApp:
                     dpg.add_spacer(height=5)
                     dpg.add_checkbox(
                         label="Binaural On", default_value=False, tag="cb_binaural_on",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="binaural_on")
+                        callback=self._on_binaural_toggle)
                     self._slider("binaural_carrier_hz", "Carrier (Hz)", 100.0, 500.0, 250.0)
                     self._slider("binaural_beat_hz", "Beat (Hz)", 0.5, 40.0, 6.0)
                     self._slider("binaural_level", "Level", 0.0, 0.3, 0.08)
@@ -320,8 +316,7 @@ class AureonoiseApp:
                     dpg.add_spacer(height=5)
                     dpg.add_checkbox(
                         label="Isochronic On", default_value=False, tag="cb_isochronic_on",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="isochronic_on")
+                        callback=self._on_isochronic_toggle)
                     self._slider("isochronic_carrier_hz", "Carrier (Hz)", 100.0, 500.0, 165.0)
                     self._slider("isochronic_rate_hz", "Rate (Hz)", 1.0, 40.0, 10.0)
                     self._slider("isochronic_duty", "Duty Cycle", 0.2, 0.8, 0.5)
@@ -358,8 +353,7 @@ class AureonoiseApp:
                     dpg.add_spacer(height=5)
                     dpg.add_checkbox(
                         label="Feedback On", default_value=False, tag="cb_feedback_on",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="feedback_on")
+                        callback=self._on_feedback_toggle)
                     self._slider("temp_ramp_sec", "Temp Ramp (s)", 0.0, 60.0, 0.0)
 
                     dpg.add_separator()
@@ -367,8 +361,7 @@ class AureonoiseApp:
                     dpg.add_text("Theta-Gamma Nesting", color=COLORS["section"])
                     dpg.add_checkbox(
                         label="Bilateral Nesting", default_value=False, tag="cb_bilateral_nesting",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="bilateral_nesting")
+                        callback=self._on_bilateral_nesting_toggle)
 
                     dpg.add_separator()
                     dpg.add_spacer(height=5)
@@ -378,16 +371,14 @@ class AureonoiseApp:
                         color=COLORS["text_dim"], wrap=520)
                     dpg.add_checkbox(
                         label="Coherence Spatial", default_value=False, tag="cb_coherence_spatial",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="coherence_spatial")
+                        callback=self._on_coherence_spatial_toggle)
 
                     dpg.add_separator()
                     dpg.add_spacer(height=5)
                     dpg.add_text("Polyrhythm Clock", color=COLORS["section"])
                     dpg.add_checkbox(
                         label="Polyrhythm On", default_value=False, tag="cb_polyrhythm_on",
-                        callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="polyrhythm_on")
+                        callback=self._on_polyrhythm_toggle)
                     self._slider_int("polyrhythm_p", "P (left)", 2, 8, 3)
                     self._slider_int("polyrhythm_q", "Q (right)", 2, 8, 2)
                     self._slider("polyrhythm_rate", "Base Rate (Hz)", 0.1, 3.0, 0.5)
@@ -447,6 +438,7 @@ class AureonoiseApp:
                     dpg.add_separator()
                     dpg.add_spacer(height=5)
                     dpg.add_text("", tag="txt_preset_active", color=COLORS["accent"])
+                    dpg.add_text("", tag="txt_feature_summary", color=COLORS["text_dim"])
 
                 # ── System tab ──────────────────────────────────────
                 with dpg.tab(label="System"):
@@ -585,6 +577,96 @@ class AureonoiseApp:
         """Set parameter on audio engine."""
         self.audio.set_param(name, value)
 
+    # ── Mutual exclusion / dependency toggle handlers ────────────────
+
+    def _on_binaural_toggle(self, sender, value, user_data):
+        self._set_param("binaural_on", value)
+        if value:
+            self._set_param("isochronic_on", False)
+            _safe_set("cb_isochronic_on", False)
+        self._update_feature_summary()
+
+    def _on_isochronic_toggle(self, sender, value, user_data):
+        self._set_param("isochronic_on", value)
+        if value:
+            self._set_param("binaural_on", False)
+            _safe_set("cb_binaural_on", False)
+        self._update_feature_summary()
+
+    def _on_dialogue_toggle(self, sender, value, user_data):
+        self._set_param("dialogue_on", value)
+        if not value:
+            self._set_param("feedback_on", False)
+            _safe_set("cb_feedback_on", False)
+            self._set_param("coherence_spatial", False)
+            _safe_set("cb_coherence_spatial", False)
+        _safe_enable("cb_feedback_on", value)
+        _safe_enable("cb_coherence_spatial", value)
+        self._update_feature_summary()
+
+    def _on_bilateral_toggle(self, sender, value, user_data):
+        self._set_param("bilateral_on", value)
+        if not value:
+            self._set_param("bilateral_nesting", False)
+            _safe_set("cb_bilateral_nesting", False)
+        _safe_enable("cb_bilateral_nesting", value)
+        self._update_feature_summary()
+
+    def _on_feedback_toggle(self, sender, value, user_data):
+        self._set_param("feedback_on", value)
+        self._update_feature_summary()
+
+    def _on_coherence_spatial_toggle(self, sender, value, user_data):
+        self._set_param("coherence_spatial", value)
+        self._update_feature_summary()
+
+    def _on_bilateral_nesting_toggle(self, sender, value, user_data):
+        self._set_param("bilateral_nesting", value)
+        self._update_feature_summary()
+
+    def _on_polyrhythm_toggle(self, sender, value, user_data):
+        self._set_param("polyrhythm_on", value)
+        self._update_feature_summary()
+
+    def _on_modal_toggle(self, sender, value, user_data):
+        self._set_param("modal_on", value)
+        self._update_feature_summary()
+
+    def _update_feature_summary(self):
+        """Update the active features summary text."""
+        parts = []
+        try:
+            if dpg.get_value("cb_bilateral_on"):
+                try:
+                    rate = self.audio.engine.params.bilateral_rate
+                    parts.append(f"Bilateral {rate}Hz")
+                except Exception:
+                    parts.append("Bilateral")
+            if dpg.get_value("cb_binaural_on"):
+                try:
+                    beat = dpg.get_value("sl_binaural_beat_hz")
+                    parts.append(f"Binaural {beat:.0f}Hz")
+                except Exception:
+                    parts.append("Binaural")
+            if dpg.get_value("cb_isochronic_on"):
+                parts.append("Isochronic")
+            if dpg.get_value("cb_dialogue_on"):
+                parts.append("Dialogue")
+            if dpg.get_value("cb_feedback_on"):
+                parts.append("Feedback")
+            if dpg.get_value("cb_coherence_spatial"):
+                parts.append("CohSpatial")
+            if dpg.get_value("cb_bilateral_nesting"):
+                parts.append("Nesting")
+            if dpg.get_value("cb_polyrhythm_on"):
+                parts.append("Polyrhythm")
+            if dpg.get_value("cb_modal_on"):
+                parts.append("Modal")
+        except Exception:
+            pass
+        summary = " + ".join(parts) if parts else "No active features"
+        _safe_set("txt_feature_summary", summary)
+
     # ── Noise mode visibility toggle ────────────────────────────────
 
     def _on_noise_mode_change(self, sender, app_data):
@@ -667,6 +749,14 @@ class AureonoiseApp:
         mp = params.get("modal_preset", 1)
         if 0 <= mp < len(MODAL_PRESETS):
             _safe_set("combo_modal_preset", MODAL_PRESETS[mp])
+
+        # Enforce mutual exclusion and dependencies
+        dialogue_on = params.get("dialogue_on", True)
+        bilateral_on = params.get("bilateral_on", False)
+        _safe_enable("cb_feedback_on", dialogue_on)
+        _safe_enable("cb_coherence_spatial", dialogue_on)
+        _safe_enable("cb_bilateral_nesting", bilateral_on)
+        self._update_feature_summary()
 
     # ── Audio device ─────────────────────────────────────────────────
 
@@ -769,6 +859,14 @@ def _safe_configure(tag: str, **kwargs):
     """Configure DPG item, silently ignoring missing tags."""
     try:
         dpg.configure_item(tag, **kwargs)
+    except Exception:
+        pass
+
+
+def _safe_enable(tag: str, enabled: bool):
+    """Enable or disable a DPG item."""
+    try:
+        dpg.configure_item(tag, enabled=enabled)
     except Exception:
         pass
 
