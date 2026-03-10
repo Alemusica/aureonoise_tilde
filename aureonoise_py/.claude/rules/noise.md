@@ -66,12 +66,20 @@ Per modulazione a frequenza F Hz: theta ≈ 2*pi*F.
 - 0.1 Hz macro-modulation (heart-brain coherence): theta ≈ 0.628
 - 1.0 Hz bilateral: theta ≈ 6.28
 
-## Stochastic resonance
+## Stochastic resonance — IMPLEMENTATA (src/sr.rs)
 
-Non ancora implementata. Quando si implementa:
-- Livello: -15 a -20 dB sotto soglia di percezione del segnale coerente
-- Tipo: noise bianco (flat spectrum)
-- Scopo: amplificare pattern coerenti, esporre pattern isolati (Collins 1995)
+`StochasticResonance` modula il noise gain ±2.5 dB attorno a unity basandosi sulla coherence del dialogue system.
+
+- Collins 1995: noise a -15/-20 dB sotto soglia ottimizza pattern detection
+- Proxy signal: dialogue coherence [0.6, 1.8] normalizzata a [0, 1]
+- Low coherence → boost noise (SR enhancement), high → reduce noise
+- Gain range: [0.75, 1.33] linear = [-2.5, +2.5] dB
+- EMA smoothing tau = 0.5s (no audible pumping)
+- Applicato al noise PRIMA del ring buffer write (pre-tinnitus notch, pre-soft_tanh)
+- Attivato via `sr_on: true` in Params
+- Presets con SR: EMDR Bilateral, Hemispheric Bridge, CC Gentle, CC Maximum, Schumann
+
+**Non usa signal_energy** perché noise e signal condividono lo stesso materiale (grains leggono dal ring buffer → positive feedback collapse). Coherence è indipendente dall'ampiezza del noise.
 
 ## Test
 

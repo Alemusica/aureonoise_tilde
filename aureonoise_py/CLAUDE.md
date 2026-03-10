@@ -17,7 +17,7 @@ Sintetizzatore di rumore granulare terapeutico. Rust DSP core (PyO3/maturin) + P
 ## Architecture — Key Facts
 
 - **Rust entry**: `src/lib.rs` — `Engine` struct, `Params` (60+ parametri), `process_block()` loop per-sample, `spawn_grain()` scheduling, PyO3 exports
-- **Signal chain**: noise → ring buffer → grain spawn/process → modal resonator → binaural/isochronic → DVF near-field → externalization → room reverb → soft_tanh clip
+- **Signal chain**: noise → SR gain → tinnitus notch → ring buffer → grain spawn/process → modal resonator → binaural/isochronic → DVF near-field → externalization → room reverb → soft_tanh clip
 - **Phi ratio**: φ=1.618 permea tutto — pan, timing, spatial taps, frequency ratios, head geometry
 - **Python layer**: `audio.py` (sounddevice I/O), `app.py` (DearPyGui GUI), `presets.py` (20 preset), `validate.py` (validation scientifica), `analysis.py` (analisi spettrale/stereo)
 - **Tests**: `pytest tests/` — 7 file di test (core, bilateral, burst, noise slope, phi model, preset validation, therapeutic)

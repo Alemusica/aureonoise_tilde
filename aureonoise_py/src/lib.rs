@@ -16,6 +16,7 @@ mod grain;
 mod burst;
 mod phi_model;
 mod phit;
+mod sr;
 mod external;
 mod modal;
 mod dialogue;
@@ -48,6 +49,7 @@ pub use noise::SpectralTilt;
 pub use dvf::DvfFilter;
 pub use room::RoomReverb;
 pub use polyrhythm::PolyrhythmClock;
+pub use sr::StochasticResonance;
 
 /// aureonoise DSP engine parameters
 #[pyclass]
@@ -129,6 +131,10 @@ pub struct Params {
     pub burst_floor: f64,
     #[pyo3(get, set)]
     pub burst_phi_mix: f64,
+
+    // Stochastic resonance (Collins 1995)
+    #[pyo3(get, set)]
+    pub sr_on: bool,
 
     // Spatial — externalisation
     #[pyo3(get, set)]
@@ -321,6 +327,9 @@ impl Default for Params {
             burst_floor: 0.35,
             burst_phi_mix: 0.6,
 
+            // Stochastic resonance
+            sr_on: false,
+
             // Spatial — externalisation
             externalization: 0.0,
 
@@ -451,6 +460,12 @@ pub struct Engine {
     room: RoomReverb,
     polyrhythm: PolyrhythmClock,
 
+    // Stochastic resonance (Collins 1995)
+    stoch_res: StochasticResonance,
+
+    // Hardware-seeded entropy (phit)
+    phit_rng: phit::PhitRng,
+
     // Stochastic
     ou_pan: OrnsteinUhlenbeck,
     ou_itd: OrnsteinUhlenbeck,
@@ -576,6 +591,8 @@ impl Engine {
             dvf: DvfFilter::new(),
             room: RoomReverb::new(sr),
             polyrhythm: PolyrhythmClock::new(),
+            stoch_res: StochasticResonance::new(),
+            phit_rng: phit::PhitRng::new(),
             ou_pan: OrnsteinUhlenbeck::new(0.60, 0.0),
             ou_itd: OrnsteinUhlenbeck::new(0.40, 0.0),
             ou_amp: OrnsteinUhlenbeck::new(0.80, 0.0),
@@ -697,6 +714,9 @@ impl Engine {
         self.modal_engine.set_mirror(self.params.modal_mirror);
         self.modal_engine.set_feedback(self.params.modal_feedback);
         self.modal_engine.contralateral = self.params.modal_contralateral;
+
+        // Stochastic resonance
+        self.stoch_res.set_active(self.params.sr_on);
     }
 
     /// Get current parameters
@@ -731,6 +751,7 @@ impl Engine {
         self.dvf.reset();
         self.room.reset();
         self.polyrhythm.reset();
+        self.stoch_res.reset();
         self.ou_macro.reset();
         self.lat_phase = 0.0;
         self.lat_last_v = 0.0;
@@ -790,6 +811,12 @@ impl Engine {
     /// 1.0 = perfectly periodic handshakes, 0.0 = random timing.
     pub fn handshake_plv(&self) -> f64 {
         self.dialogue.handshake_plv()
+    }
+
+    /// Get current stochastic resonance noise gain (for GUI display).
+    /// Returns 1.0 when SR is inactive.
+    pub fn sr_noise_gain(&self) -> f64 {
+        self.stoch_res.noise_gain()
     }
 
     /// Process a block of samples, returns (left, right) arrays
@@ -932,6 +959,12 @@ impl Engine {
             coh_spatial_mod *= 0.85 + 0.30 * macro_norm; // [0.85, 1.15]
         }
 
+        // Stochastic Resonance: adapt noise gain from coherence (Collins 1995)
+        if self.stoch_res.is_active() {
+            let coh = self.dialogue.coherence();
+            self.stoch_res.adapt(coh, num_samples, self.sr);
+        }
+
         // Polyrhythm tick for this block
         let _poly_result = if self.params.polyrhythm_on {
             self.polyrhythm.tick(self.sr, num_samples as f64)
@@ -1013,6 +1046,10 @@ impl Engine {
             } else {
                 self.noise_gen.next_sample(&mut self.rng, self.sr)
             };
+            // Stochastic resonance gain (Collins 1995: ±2.5 dB around unity)
+            if self.stoch_res.is_active() {
+                nz *= self.stoch_res.noise_gain();
+            }
             // Tinnitus notch filter
             nz = self.tinnitus.process(nz);
             nz = soft_tanh(nz * 1.2);

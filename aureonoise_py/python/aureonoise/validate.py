@@ -535,6 +535,18 @@ def validate_params(name: str, profile: TherapeuticProfile) -> List[Check]:
             "BAC: full spectral richness + coherence monitoring recommended",
         ))
 
+    # --- Stochastic resonance for bilateral presets ---
+    # Collins 1995: SR enhances pattern detection in nonlinear threshold systems.
+    # Recommended (WARN, not FAIL) when dialogue is active.
+    if profile.dialogue and profile.bilateral:
+        sr_val = p.get("sr_on", False)
+        checks.append(Check(
+            "sr_enabled", bool(sr_val),
+            str(sr_val), "True (recommended)",
+            "WARN",
+            "Collins 1995: stochastic resonance enhances bilateral pattern detection",
+        ))
+
     # --- Target beat frequency (binaural or isochronic) ---
     if profile.target_beat_hz is not None:
         if profile.binaural:
@@ -870,6 +882,30 @@ def validate_signal(
                 "WARN",  # severity irrelevant since passed=True
                 "Iaccarino 2016 (gamma 60 min), clinical consensus (delta/theta 30 min)",
             ))
+
+    # ── 19. STOCHASTIC RESONANCE GAIN (Collins 1995) ──────────
+    # When SR is active, the noise gain after adaptation should be
+    # within the operational ±2.5 dB window (0.75 to 1.33 linear).
+    # The Collins -15 to -20 dB range defines the noise-to-signal ratio;
+    # the gain is the adaptive multiplier that achieves this target.
+    SR_GAIN_DB_MIN = -2.5  # 10^(-2.5/20) ≈ 0.75
+    SR_GAIN_DB_MAX = 2.5   # 10^(2.5/20) ≈ 1.33
+    if preset_ci is not None:
+        sr_on = preset_ci.params.get("sr_on", False)
+        if sr_on:
+            try:
+                sr_gain = engine.sr_noise_gain()
+                gain_db = 20.0 * np.log10(max(sr_gain, 1e-9))
+                gain_ok = SR_GAIN_DB_MIN <= gain_db <= SR_GAIN_DB_MAX
+                checks.append(Check(
+                    "sr_noise_gain", gain_ok,
+                    f"{sr_gain:.3f} ({gain_db:.1f} dB)",
+                    f"within ±2.5 dB ({SR_GAIN_DB_MIN} to {SR_GAIN_DB_MAX} dB)",
+                    "WARN",
+                    "Collins 1995: SR gain should stay within ±2.5 dB adaptation window",
+                ))
+            except AttributeError:
+                pass  # sr_noise_gain() not available in this build
 
     return checks
 

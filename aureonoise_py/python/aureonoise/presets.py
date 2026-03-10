@@ -70,6 +70,8 @@ class Preset:
             "lat_sigma": params.lat_sigma,
             "burst_floor": params.burst_floor,
             "burst_phi_mix": params.burst_phi_mix,
+            # Stochastic resonance
+            "sr_on": params.sr_on,
             # Externalization
             "externalization": params.externalization,
             # Dialogue
@@ -190,6 +192,8 @@ class PresetBank:
             "temperature": 0.22, "lat_rate": 250.0,
             "lat_eps": INV_PHI_CU, "lat_gamma": PHI, "lat_sigma": 0.06,
             "burst_floor": 0.35, "burst_phi_mix": 0.6,
+            # Stochastic resonance (Collins 1995)
+            "sr_on": False,
             # Externalization
             "externalization": 0.0,
             # Dialogue
@@ -315,6 +319,7 @@ class PresetBank:
             "vhs_wow": 0.35, "vhs_flutter": 0.25,
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.22,  # SR-optimal range 0.18-0.25 (SYNTHESIS.md)
+            "sr_on": True,  # Collins 1995: adaptive noise for pattern detection
             "externalization": 0.5,
             "dialogue_on": True, "dialogue_strength": 0.8,
             "dialogue_memory": 0.6, "dialogue_phi_mix": 0.8,
@@ -413,6 +418,7 @@ class PresetBank:
             "thermo": True, "lattice": True, "burst": True,
             "burst_floor": 0.4, "burst_phi_mix": 0.5,
             "temperature": 0.25,  # SR-optimal range 0.18-0.25 (SYNTHESIS.md)
+            "sr_on": True,  # Collins 1995: adaptive noise for pattern detection
             "externalization": 0.35,
             "dialogue_on": True, "dialogue_strength": 0.7,
             "dialogue_memory": 0.6, "dialogue_phi_mix": 0.8,
@@ -533,6 +539,7 @@ class PresetBank:
             "env_attack": 0.03, "env_decay": 0.20, "env_sustain": 0.55, "env_release": 0.30,
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.20,
+            "sr_on": True,  # Collins 1995: adaptive noise for pattern detection
             "externalization": 0.3,
             "dialogue_on": True, "dialogue_strength": 0.5,
             "phi_pan": False, "bilateral_on": True,
@@ -553,6 +560,7 @@ class PresetBank:
             "thermo": True, "lattice": True, "burst": True,
             "burst_floor": 0.3, "burst_phi_mix": 0.6,
             "temperature": 0.22,
+            "sr_on": True,  # Collins 1995: adaptive noise for pattern detection
             "externalization": 0.35,
             "dialogue_on": True, "dialogue_strength": 0.85,
             "dialogue_memory": 0.65, "dialogue_phi_mix": 0.85,
@@ -596,6 +604,7 @@ class PresetBank:
             "env_attack": 0.2, "env_sustain": 0.55, "env_release": 0.35,
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.20,
+            "sr_on": True,  # Collins 1995: adaptive noise for pattern detection
             "externalization": 0.15,
             "dialogue_on": True, "dialogue_strength": 0.5,
             "phi_pan": False, "bilateral_on": True,
