@@ -456,18 +456,23 @@ impl DialogueSystem {
 }
 
 /// Sacred ratios for multi-target handshake scoring.
-/// Three families: Fibonacci convergents, musical polyrhythmic, phi powers.
-const SACRED_RATIOS: [f64; 10] = [
-    0.382,  // 1/φ² — phi power
-    0.500,  // 1:2 — octave inverse
-    0.618,  // 1/φ — golden ratio inverse
-    0.667,  // 2:3 — perfect fifth inverse
-    1.000,  // unison
-    1.500,  // 3:2 — perfect fifth
-    1.618,  // φ — golden ratio
-    2.000,  // 2:1 — octave
-    2.618,  // φ² — phi squared
-    4.236,  // φ³ — phi cubed
+/// Two families with DIFFERENT neurological functions (Klimesch 2012):
+///   - PHI family: desynchronization / therapeutic (full weight)
+///   - HARMONIC family: phase coupling / active cognition (reduced weight)
+/// Conflating them scores coupling events as therapeutic — wrong.
+const PHI_RATIOS: [(f64, f64); 5] = [
+    (0.382,  1.0),  // 1/φ² — phi power
+    (0.618,  1.0),  // 1/φ — golden ratio inverse
+    (1.618,  1.0),  // φ — golden ratio
+    (2.618,  1.0),  // φ² — phi squared
+    (4.236,  1.0),  // φ³ — phi cubed
+];
+const HARMONIC_RATIOS: [(f64, f64); 5] = [
+    (0.500,  0.5),  // 1:2 — octave inverse (coupling, not therapeutic)
+    (0.667,  0.5),  // 2:3 — perfect fifth inverse
+    (1.000,  0.5),  // unison
+    (1.500,  0.5),  // 3:2 — perfect fifth
+    (2.000,  0.5),  // 2:1 — octave
 ];
 
 /// Score how close `ratio` is to `target` on a log scale.
@@ -482,7 +487,8 @@ fn ratio_score_single(ratio: f64, target: f64) -> f64 {
 }
 
 /// Multi-target ratio scoring: how close `ratio` is to ANY sacred ratio.
-/// Returns (best_score, best_target) — the highest-scoring target and its value.
+/// Phi-family ratios get full weight (therapeutic desynchronization).
+/// Harmonic-family ratios get 50% weight (coupling/active cognition — Klimesch 2012).
 /// Falls back to `primary_target` (from Fibonacci walk) with a bonus if it wins.
 #[inline]
 fn ratio_score(ratio: f64, primary_target: f64) -> f64 {
@@ -491,10 +497,10 @@ fn ratio_score(ratio: f64, primary_target: f64) -> f64 {
     }
     let primary = ratio_score_single(ratio, primary_target);
 
-    // Check all sacred ratios, take the best
+    // Check all sacred ratios with family-specific weights
     let mut best = primary;
-    for &sacred in &SACRED_RATIOS {
-        let s = ratio_score_single(ratio, sacred);
+    for &(target, weight) in PHI_RATIOS.iter().chain(HARMONIC_RATIOS.iter()) {
+        let s = ratio_score_single(ratio, target) * weight;
         if s > best {
             best = s;
         }

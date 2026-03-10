@@ -314,7 +314,7 @@ class PresetBank:
             "env_attack": 0.03, "env_decay": 0.20, "env_sustain": 0.55, "env_release": 0.30,
             "vhs_wow": 0.35, "vhs_flutter": 0.25,
             "thermo": True, "lattice": True, "burst": False,
-            "temperature": 0.35,
+            "temperature": 0.22,  # SR-optimal range 0.18-0.25 (SYNTHESIS.md)
             "externalization": 0.5,
             "dialogue_on": True, "dialogue_strength": 0.8,
             "dialogue_memory": 0.6, "dialogue_phi_mix": 0.8,
@@ -352,7 +352,7 @@ class PresetBank:
 
         _preset("Sleep Pink",
             "Slow-wave sleep promotion with pink noise", {
-            "rate": 3.0, "baselen_ms": 500.0, "len_phi": 0.4,
+            "rate": 3.0, "baselen_ms": 800.0, "len_phi": 0.3,  # SYNTHESIS.md: 800-1200ms for continuity
             "width": 0.8,
             "env_attack": 0.3, "env_decay": 0.3, "env_sustain": 0.7, "env_release": 0.5,
             "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
@@ -393,7 +393,7 @@ class PresetBank:
             "vhs_wow": 0.35, "vhs_flutter": 0.25,
             "env_attack": 0.18, "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": True, "burst": True,
-            "temperature": 0.35, "burst_floor": 0.3, "burst_phi_mix": 0.65,
+            "temperature": 0.25, "burst_floor": 0.3, "burst_phi_mix": 0.65,  # SR-optimal 0.18-0.25
             "externalization": 0.2,
             "dialogue_on": True, "dialogue_strength": 0.5,
             "dialogue_memory": 0.4,
@@ -412,7 +412,7 @@ class PresetBank:
             "env_attack": 0.04, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
             "thermo": True, "lattice": True, "burst": True,
             "burst_floor": 0.4, "burst_phi_mix": 0.5,
-            "temperature": 0.35,
+            "temperature": 0.25,  # SR-optimal range 0.18-0.25 (SYNTHESIS.md)
             "externalization": 0.35,
             "dialogue_on": True, "dialogue_strength": 0.7,
             "dialogue_memory": 0.6, "dialogue_phi_mix": 0.8,
@@ -502,7 +502,7 @@ class PresetBank:
             "bilateral_nesting": False,
             "noise_mode": 2, "noise_slope": -2.0,
             "binaural_on": False,
-            "isochronic_on": True, "isochronic_carrier_hz": 400.0,
+            "isochronic_on": True, "isochronic_carrier_hz": 165.0,  # SYNTHESIS.md: 150-180 Hz optimal
             "isochronic_rate_hz": 40.0, "isochronic_level": 0.12,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
@@ -580,7 +580,7 @@ class PresetBank:
             "dialogue_on": False,
             "phi_pan": False, "bilateral_on": False,
             "bilateral_nesting": False,
-            "noise_mode": 2, "noise_slope": -1.5,
+            "noise_mode": 2, "noise_slope": -2.0,  # brown (-2 dB/oct) for delta induction (Slezin 2003)
             "binaural_on": False,
             "isochronic_on": True, "isochronic_carrier_hz": 150.0,
             "isochronic_rate_hz": 3.0, "isochronic_duty": 0.4, "isochronic_level": 0.10,

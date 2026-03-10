@@ -39,17 +39,20 @@ Preset bilaterali corretti:
 - CC Gentle: env_attack = 0.03 → ~3.6ms onset
 - CC Maximum: env_attack = 0.04 → ~4ms onset
 
-## 10 SACRED_RATIOS
+## 10 SACRED_RATIOS — Two weighted families
 
 ```rust
-const SACRED_RATIOS: [f64; 10] = [
-    PHI, INV_PHI, PHI*PHI, INV_PHI*INV_PHI,
-    2.0, 0.5, PHI*PHI*PHI, INV_PHI*INV_PHI*INV_PHI,
-    3.0, 1.0/3.0
+// PHI family: desynchronization/therapeutic (full weight 1.0) — Klimesch 2012
+const PHI_RATIOS: [(f64, f64); 5] = [
+    (0.382, 1.0), (0.618, 1.0), (1.618, 1.0), (2.618, 1.0), (4.236, 1.0),
+];
+// HARMONIC family: coupling/active cognition (weight 0.5)
+const HARMONIC_RATIOS: [(f64, f64); 5] = [
+    (0.500, 0.5), (0.667, 0.5), (1.000, 0.5), (1.500, 0.5), (2.000, 0.5),
 ];
 ```
 
-Il ratio_score confronta il rapporto L/R amplitude contro ognuna di queste. Non ridurre il set.
+Il ratio_score confronta il rapporto L/R amplitude contro tutte e 10 con peso differenziato. Le phi ratios hanno peso pieno (terapeutico), le armoniche peso dimezzato (coupling attivo). Non ridurre il set — ogni ratio ha significato, ma il peso distingue la funzione neurologica.
 
 ## phi_model.rs — Stato delle funzioni
 

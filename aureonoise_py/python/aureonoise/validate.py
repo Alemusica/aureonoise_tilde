@@ -823,6 +823,18 @@ def validate_signal(
                 "WARN",
                 "Brenner 2009: auditory driving 8-25 Hz analogous to photic driving — epilepsy risk",
             ))
+        # 3 Hz absence seizure risk — different mechanism from photic driving.
+        # 3 Hz spike-and-wave is the hallmark of absence (petit mal) epilepsy.
+        # Entrainment at this frequency may trigger seizures in susceptible individuals.
+        # Source: Panayiotopoulos 2005, Lopes da Silva 2003.
+        if iso_on and 2.5 <= iso_rate <= 4.0:
+            checks.append(Check(
+                "contraindication_absence_seizure", False,
+                f"isochronic at {iso_rate:.1f} Hz (absence seizure frequency 2.5-4 Hz)",
+                "WARNING: absence epilepsy contraindication — 3 Hz spike-and-wave",
+                "WARN",
+                "Panayiotopoulos 2005: 3 Hz is hallmark absence seizure frequency",
+            ))
 
     # ── 18. SESSION DOSE NOTE (informational) ────────────────
     # Not a PASS/FAIL — informational output about recommended duration.

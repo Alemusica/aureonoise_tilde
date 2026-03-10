@@ -1545,13 +1545,7 @@ impl Engine {
 
         let mut rate = clamp(self.params.rate, 0.0, MAX_EVENT_RATE_HZ);
 
-        // T2.3: Theta-gamma nesting — quantize grain rate to integer multiple of bilateral rate
-        if self.params.bilateral_nesting && self.params.bilateral_on && self.params.bilateral_rate > 0.1 {
-            let bi_rate = self.params.bilateral_rate;
-            let ratio = (rate / bi_rate).round().max(4.0).min(8.0); // 4:1 to 8:1
-            rate = bi_rate * ratio;
-        }
-
+        // Thermo OU rate modulation — apply BEFORE nesting so nesting quantizes the final rate
         if self.params.thermo {
             let ur = 0.5 + 0.5 * self.ou_rate.y.tanh();
             let rate_phi = map_phi_range(
@@ -1560,6 +1554,15 @@ impl Engine {
                 ur
             );
             rate = clamp(rate_phi, 0.0, MAX_EVENT_RATE_HZ);
+        }
+
+        // T2.3: Theta-gamma nesting — quantize grain rate to integer multiple of bilateral rate
+        // Lisman-Jensen 2013: 4-8 gamma cycles per theta cycle.
+        // Must run AFTER thermo so the OU-modulated rate gets quantized, not overwritten.
+        if self.params.bilateral_nesting && self.params.bilateral_on && self.params.bilateral_rate > 0.1 {
+            let bi_rate = self.params.bilateral_rate;
+            let ratio = (rate / bi_rate).round().max(4.0).min(8.0); // 4:1 to 8:1
+            rate = bi_rate * ratio;
         }
         
         if rate <= 1e-6 {
