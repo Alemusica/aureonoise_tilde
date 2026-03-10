@@ -68,6 +68,14 @@ pub struct Grain {
     /// Each grain reads from a different region of the ring buffer,
     /// producing uncorrelated noise content across concurrent grains.
     pub ring_offset: usize,
+
+    // Phi spatial pipeline (distance response)
+    /// Distance LP filter coefficient (0 = bypass)
+    pub dist_lp_a: f64,
+    /// Distance LP filter state L
+    pub dist_lp_z_l: f64,
+    /// Distance LP filter state R
+    pub dist_lp_z_r: f64,
 }
 
 #[pymethods]
@@ -128,6 +136,9 @@ impl Default for Grain {
             kind: GrainKind::Burst,
             env: EnvelopeShape::default(),
             ring_offset: 0,
+            dist_lp_a: 0.0,
+            dist_lp_z_l: 0.0,
+            dist_lp_z_r: 0.0,
         }
     }
 }

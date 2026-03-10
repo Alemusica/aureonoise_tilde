@@ -36,7 +36,8 @@ pub use stoch::{OrnsteinUhlenbeck, Lattice, Hawkes};
 pub use envelope::{Envelope, EnvelopeShape};
 pub use grain::{Grain, GrainPool};
 pub use burst::{BurstEngine, BurstResult};
-pub use phi_model::{PhiModel, GeometryConfig, Geometry, build_geometry, compute_head_result};
+pub use phi_model::{PhiModel, GeometryConfig, Geometry, build_geometry, compute_head_result,
+    design_pinna_response, PinnaTuning, compute_distance_response, compute_air_absorption};
 pub use external::{ExternalProcessor, ExternalConfig};
 pub use dialogue::{DialogueSystem, DialogueParams, PhiPan, BilateralOscillator};
 pub use modal::{ModalEngine, ModalPreset};
@@ -87,7 +88,10 @@ pub struct Params {
     pub env_sustain: f64,
     #[pyo3(get, set)]
     pub env_release: f64,
-    
+    /// Envelope curve shape: 0 = linear (default), 1 = Hann (raised cosine attack/release)
+    #[pyo3(get, set)]
+    pub envelope_shape: i32,
+
     // Timbre
     #[pyo3(get, set)]
     pub noise_color: i32,
@@ -231,6 +235,12 @@ pub struct Params {
     pub phi_distance: f64,
     #[pyo3(get, set)]
     pub phi_elev: f64,
+    /// Pinna amplitude modulation amount (0-1). 0 = bypass, 1 = full pinna response.
+    #[pyo3(get, set)]
+    pub spat_pinna: f64,
+    /// Distance attenuation + LP rolloff amount (0-1). 0 = bypass, 1 = full distance model.
+    #[pyo3(get, set)]
+    pub spat_distance: f64,
 
     // Polyrhythm clock (T5.5)
     #[pyo3(get, set)]
@@ -288,7 +298,8 @@ impl Default for Params {
             env_decay: 0.28,
             env_sustain: 0.55,
             env_release: 0.30,
-            
+            envelope_shape: 0,  // linear (default)
+
             // Timbre
             noise_color: 1, // Pink
             color_amt: 0.65,
@@ -371,6 +382,8 @@ impl Default for Params {
             // Phi model
             phi_distance: 1.5,
             phi_elev: 0.0,
+            spat_pinna: 0.0,
+            spat_distance: 0.0,
 
             // Polyrhythm clock
             polyrhythm_on: false,
@@ -453,6 +466,9 @@ pub struct Engine {
     gap_elapsed: i32,
     sample_counter: u64,
 
+    // 0.1 Hz macro-modulation OU (heart-brain coherence rhythm)
+    ou_macro: OrnsteinUhlenbeck,
+
     // Coherence feedback loop (BAC-inspired)
     coh_slow: f64,           // slow EMA of coherence (~5s tau)
     effective_temp: f64,     // feedback-modulated temperature
@@ -477,6 +493,15 @@ pub struct Engine {
     contra_delay_pos: usize,
     contra_shadow_z_l: f64,    // head shadow LP state (left ear)
     contra_shadow_z_r: f64,    // head shadow LP state (right ear)
+
+    // Body resonance safety notch filters (P0 safety)
+    // Each filter: [b0, b1, b2, a1, a2] coefficients, [z1, z2] state per channel
+    safety_notch_chest_coeff: [f64; 5],   // 6.5 Hz center (5-8 Hz chest cavity)
+    safety_notch_chest_zl: [f64; 2],      // left channel state
+    safety_notch_chest_zr: [f64; 2],      // right channel state
+    safety_notch_eye_coeff: [f64; 5],     // 19 Hz center (eyeball resonance)
+    safety_notch_eye_zl: [f64; 2],        // left channel state
+    safety_notch_eye_zr: [f64; 2],        // right channel state
 
     // Previous grain state (for hemisphere coupling)
     prev_pan: f64,
@@ -512,6 +537,12 @@ impl Engine {
 
         let init_temp = params.temperature;
         let init_bilateral_rate = params.bilateral_rate;
+
+        // Body resonance safety notch filters (P0)
+        // Chest cavity: 6.5 Hz center, Q=2.5 → bandwidth ~2.6 Hz (covers 5.2-7.8 Hz, avoids 3 Hz delta)
+        // Eyeball: 19 Hz center, Q=4.0 → bandwidth ~4.75 Hz (covers 16.6-21.4 Hz)
+        let safety_notch_chest_coeff = compute_notch_coeffs(6.5, sr, 2.5);
+        let safety_notch_eye_coeff = compute_notch_coeffs(19.0, sr, 4.0);
 
         Self {
             params,
@@ -549,6 +580,8 @@ impl Engine {
             ou_itd: OrnsteinUhlenbeck::new(0.40, 0.0),
             ou_amp: OrnsteinUhlenbeck::new(0.80, 0.0),
             ou_rate: OrnsteinUhlenbeck::new(1.20, 0.0),
+            // 0.1 Hz macro OU: tau = 1/(2*pi*0.1) ≈ 1.59s, sigma = 0.25
+            ou_macro: OrnsteinUhlenbeck::new(1.59, 0.25),
             lattice: Lattice::new(8, 8, 4),
             hawkes: Hawkes::new(None, None),
             lat_phase: 0.0,
@@ -571,6 +604,12 @@ impl Engine {
             contra_delay_pos: 0,
             contra_shadow_z_l: 0.0,
             contra_shadow_z_r: 0.0,
+            safety_notch_chest_coeff,
+            safety_notch_chest_zl: [0.0; 2],
+            safety_notch_chest_zr: [0.0; 2],
+            safety_notch_eye_coeff,
+            safety_notch_eye_zl: [0.0; 2],
+            safety_notch_eye_zr: [0.0; 2],
             prev_pan: 0.0,
             prev_itd: 0.0,
             prev_ild: 0.0,
@@ -615,6 +654,13 @@ impl Engine {
         self.burst_engine.enabled = self.params.burst;
         self.burst_engine.floor = self.params.burst_floor;
         self.burst_engine.phi_mix = self.params.burst_phi_mix;
+
+        // Scale Hawkes base rate with grain rate so burst clustering tracks frequency.
+        // Default rate=8.0 maps to default base=4*PHI. Clamped to [0.5, 50] × PHI.
+        let rate_scale = clamp(self.params.rate / 8.0, 0.1, 12.0);
+        self.hawkes.base = 4.0 * PHI * rate_scale;
+        // Decay rate scales inversely: faster events = faster decay to avoid pile-up
+        self.hawkes.beta = (30.0 / PHI) * rate_scale.sqrt();
 
         // Bilateral oscillator
         self.bilateral.set_rate(self.params.bilateral_rate);
@@ -685,6 +731,7 @@ impl Engine {
         self.dvf.reset();
         self.room.reset();
         self.polyrhythm.reset();
+        self.ou_macro.reset();
         self.lat_phase = 0.0;
         self.lat_last_v = 0.0;
         self.samples_to_next = (self.sr * 0.05) as i32;
@@ -705,6 +752,13 @@ impl Engine {
         self.contra_delay_pos = 0;
         self.contra_shadow_z_l = 0.0;
         self.contra_shadow_z_r = 0.0;
+        // Recompute safety notch coefficients (SR may have changed)
+        self.safety_notch_chest_coeff = compute_notch_coeffs(6.5, self.sr, 2.5);
+        self.safety_notch_chest_zl = [0.0; 2];
+        self.safety_notch_chest_zr = [0.0; 2];
+        self.safety_notch_eye_coeff = compute_notch_coeffs(19.0, self.sr, 4.0);
+        self.safety_notch_eye_zl = [0.0; 2];
+        self.safety_notch_eye_zr = [0.0; 2];
         self.prev_pan = 0.0;
         self.prev_itd = 0.0;
         self.prev_ild = 0.0;
@@ -764,6 +818,25 @@ impl Engine {
     pub fn set_sample_rate(&mut self, sr: f64) {
         self.sr = if sr > 0.0 { sr } else { 44100.0 };
         self.modal_engine.set_sr(self.sr);
+        // Recompute safety notch coefficients for new SR
+        self.safety_notch_chest_coeff = compute_notch_coeffs(6.5, self.sr, 2.5);
+        self.safety_notch_eye_coeff = compute_notch_coeffs(19.0, self.sr, 4.0);
+    }
+
+    /// Returns true when the current isochronic rate is in the 8-25 Hz
+    /// seizure risk range (auditory driving, analogous to photic driving).
+    /// The Python layer should show a safety warning when this returns true.
+    pub fn isochronic_seizure_risk(&self) -> bool {
+        self.params.isochronic_on
+            && IsochronicTone::is_seizure_risk_range(self.params.isochronic_rate_hz)
+    }
+
+    /// Returns true when the current isochronic rate is in a body resonance
+    /// range: 5-8 Hz (thoracic cavity) or 18-20 Hz (ocular globe).
+    /// The Python layer should show a safety warning when this returns true.
+    pub fn isochronic_body_resonance_risk(&self) -> bool {
+        self.params.isochronic_on
+            && IsochronicTone::is_body_resonance_range(self.params.isochronic_rate_hz)
     }
 }
 
@@ -813,6 +886,14 @@ impl Engine {
             self.effective_temp = ramped_temp;
         }
 
+        // --- 0.1 Hz macro-modulation (heart-brain coherence rhythm) ---
+        // OU process at ~0.1 Hz modulates width for breathing-like spatial pulsation.
+        // Only active when feedback loop is on (therapeutic presets).
+        let block_dt = num_samples as f64 / self.sr;
+        if self.params.feedback_on {
+            self.ou_macro.step(block_dt, 0.0, &mut self.rng);
+        }
+
         // Weighted-average pan from previous block's grains (for DVF near-field)
         let avg_pan = if self.block_pan_weight > 1e-9 {
             clamp(self.block_pan_sum / self.block_pan_weight, -1.0, 1.0)
@@ -835,7 +916,7 @@ impl Engine {
         let ext_cfg = ExternalProcessor::prepare(self.params.externalization, self.sr);
 
         // T6.3: Coherence-driven spatial morphing — pre-compute modulation
-        let coh_spatial_mod = if self.params.coherence_spatial {
+        let mut coh_spatial_mod = if self.params.coherence_spatial {
             // High coherence → wider separation (emphasize bilateral effect)
             let coh = self.dialogue.coherence();
             let coh_norm = clamp01((coh - 0.6) / 1.2);
@@ -844,6 +925,12 @@ impl Engine {
         } else {
             1.0
         };
+
+        // Macro-modulation: 0.1 Hz OU scales width ±15% for heart-brain coherence rhythm
+        if self.params.feedback_on {
+            let macro_norm = 0.5 + 0.5 * self.ou_macro.y.tanh(); // [0, 1]
+            coh_spatial_mod *= 0.85 + 0.30 * macro_norm; // [0.85, 1.15]
+        }
 
         // Polyrhythm tick for this block
         let _poly_result = if self.params.polyrhythm_on {
@@ -950,7 +1037,7 @@ impl Engine {
                 }
                 
                 let phase = grain.phase();
-                let env = Envelope::eval(phase, &grain.env);
+                let env = Envelope::eval(phase, &grain.env, self.params.envelope_shape);
                 
                 // Read from ring with ITD + per-grain offset for decorrelation
                 let itd = grain.itd + vhs_mod * 0.25 * itd_scale;
@@ -1025,7 +1112,17 @@ impl Engine {
                         grain.shadow_z_r = new_z;
                     }
                 }
-                
+
+                // Distance LP (HF rolloff with distance — phi spatial pipeline)
+                if grain.dist_lp_a > 1e-6 {
+                    grain.dist_lp_z_l = grain.dist_lp_a * grain.dist_lp_z_l
+                        + (1.0 - grain.dist_lp_a) * s_l;
+                    s_l = grain.dist_lp_z_l;
+                    grain.dist_lp_z_r = grain.dist_lp_a * grain.dist_lp_z_r
+                        + (1.0 - grain.dist_lp_a) * s_r;
+                    s_r = grain.dist_lp_z_r;
+                }
+
                 // Accumulate with envelope
                 y_l += grain.amp * env * s_l;
                 y_r += grain.amp * env * s_r;
@@ -1153,6 +1250,12 @@ impl Engine {
             let (rl, rr) = self.room.process(y_l, y_r);
             y_l = rl;
             y_r = rr;
+
+            // Body resonance safety notch filters (P0 — chest cavity 5-8 Hz, eyeball 19 Hz)
+            y_l = biquad_tick(y_l, &self.safety_notch_chest_coeff, &mut self.safety_notch_chest_zl);
+            y_r = biquad_tick(y_r, &self.safety_notch_chest_coeff, &mut self.safety_notch_chest_zr);
+            y_l = biquad_tick(y_l, &self.safety_notch_eye_coeff, &mut self.safety_notch_eye_zl);
+            y_r = biquad_tick(y_r, &self.safety_notch_eye_coeff, &mut self.safety_notch_eye_zr);
 
             // Soft clip output
             out_l[n] = soft_tanh(y_l * OUT_DRIVE) / OUT_DRIVE;
@@ -1366,7 +1469,42 @@ impl Engine {
             grain.shadow_left = pan > 0.0;
             grain.shadow_right = pan < 0.0;
         }
-        
+
+        // --- Phi spatial pipeline: pinna + distance + air absorption ---
+        // Pinna amplitude modulation (azimuth-dependent gain from pinna geometry).
+        // At pan=0 (center), amp_scale≈0.35; at pan=1.0 (lateral), amp_scale≈1.0.
+        // This creates a ~16% dip at center during bilateral sweep (at spat_pinna=0.25),
+        // which reinforces the bilateral percept. At higher values the dip deepens.
+        let pinna_amt = clamp01(self.params.spat_pinna);
+        if pinna_amt > 1e-6 {
+            let pinna_tuning = PinnaTuning {
+                elev_norm: clamp01(self.params.phi_elev),
+                ..PinnaTuning::default()
+            };
+            let pinna_resp = design_pinna_response(&self.phi_geom, pan, &pinna_tuning);
+            // Mix: at 0 no effect, at 1 full pinna attenuation
+            grain.amp *= 1.0 - pinna_amt * (1.0 - pinna_resp.amp_scale);
+        }
+
+        // Distance response: gain attenuation + LP HF rolloff + air absorption.
+        // phi_distance is clamped to [0,1] here because compute_distance_response maps
+        // to physical distance [0.8m, 4.0m]. The ITD path above uses unclamped phi_distance
+        // (default 1.5) where values >1 reduce ITD (smaller angle subtended at distance).
+        let dist_amt = clamp01(self.params.spat_distance);
+        if dist_amt > 1e-6 {
+            let phi_dist = clamp01(self.params.phi_distance);
+            let dist_resp = compute_distance_response(self.sr, phi_dist);
+            // Mix: at 0 no attenuation, at 1 full distance model
+            grain.amp *= 1.0 - dist_amt * (1.0 - dist_resp.direct_gain);
+            // LP coefficient scaled by distance amount
+            grain.dist_lp_a = dist_resp.lowpass_alpha * dist_amt;
+
+            // Air absorption at reference 4kHz (ISO 9613-1)
+            let distance_m = 0.8 + 3.2 * phi_dist;
+            let air_atten = compute_air_absorption(4000.0, distance_m);
+            grain.amp *= 1.0 - dist_amt * (1.0 - air_atten);
+        }
+
         // Glitch kind
         grain.kind = GrainKind::choose(self.params.glitch_mix, u4);
         
@@ -1464,6 +1602,41 @@ fn allpass(x: f64, a: f64, z: f64) -> (f64, f64) {
 fn shadow_lp(x: f64, a: f64, z: f64) -> (f64, f64) {
     let y = (1.0 - a) * x + a * z;
     (y, y)
+}
+
+/// Compute 2nd-order biquad notch (band-reject) filter coefficients.
+/// Returns [b0, b1, b2, a1, a2].
+/// `center_hz`: notch center frequency
+/// `sr`: sample rate
+/// `q`: quality factor (bandwidth control, higher = narrower notch)
+/// Attenuation at center frequency is theoretically infinite for ideal notch;
+/// practical Q of 1.0–2.0 gives 12–20 dB rejection over the target band.
+#[inline]
+fn compute_notch_coeffs(center_hz: f64, sr: f64, q: f64) -> [f64; 5] {
+    let w0 = TWO_PI * center_hz / sr;
+    let alpha = w0.sin() / (2.0 * q);
+    let cos_w0 = w0.cos();
+
+    let b0 = 1.0;
+    let b1 = -2.0 * cos_w0;
+    let b2 = 1.0;
+    let a0 = 1.0 + alpha;
+    let a1 = -2.0 * cos_w0;
+    let a2 = 1.0 - alpha;
+
+    // Normalize by a0
+    [b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0]
+}
+
+/// Apply biquad filter (transposed direct form II) to a single sample.
+/// `c`: [b0, b1, b2, a1, a2], `z`: [z1, z2] (state, mutated in place).
+/// Returns filtered sample.
+#[inline]
+fn biquad_tick(x: f64, c: &[f64; 5], z: &mut [f64; 2]) -> f64 {
+    let y = c[0] * x + z[0];
+    z[0] = c[1] * x - c[3] * y + z[1];
+    z[1] = c[2] * x - c[4] * y;
+    y
 }
 
 /// Read from the 64-sample contralateral delay ring with linear interpolation.

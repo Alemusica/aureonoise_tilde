@@ -16,10 +16,14 @@ except ImportError:
 
 from aureonoise import Engine, Params
 
+# Hard safety ceiling — independent of user gain control.
+# -1 dBFS = 10^(-1/20) ≈ 0.891. Cannot be bypassed by parameter settings.
+MAX_SAFE_AMPLITUDE = 0.891
+
 
 class AudioEngine:
     """Real-time audio engine with sounddevice backend."""
-    
+
     def __init__(
         self,
         sample_rate: float = 44100.0,
@@ -28,7 +32,7 @@ class AudioEngine:
     ):
         """
         Initialize the audio engine.
-        
+
         Args:
             sample_rate: Sample rate in Hz
             block_size: Audio block size (latency trade-off)
@@ -36,26 +40,26 @@ class AudioEngine:
         """
         if sd is None:
             raise ImportError("sounddevice is required: pip install sounddevice")
-        
+
         self.sample_rate = sample_rate
         self.block_size = block_size
         self.output_device = output_device
-        
+
         # DSP engine
         self.engine = Engine(sample_rate)
         self._params = Params()
-        
+
         # Audio state
         self._stream: Optional[sd.OutputStream] = None
         self._running = False
         self._lock = threading.Lock()
-        
+
         # Metering
         self._peak_l = 0.0
         self._peak_r = 0.0
         self._rms_l = 0.0
         self._rms_r = 0.0
-        
+
         # Analysis hook (T7.3)
         self._analysis_interval = 0  # blocks between analysis (0 = off)
         self._analysis_counter = 0
@@ -65,6 +69,14 @@ class AudioEngine:
 
         # Callbacks
         self._on_meter: Optional[Callable] = None
+
+        # Session timer — accumulated playback time in seconds
+        self._session_frames: int = 0  # total frames rendered (atomic int, safe)
+        self._max_session_duration: float = 3600.0  # 1 hour default
+        self._session_warning_fired: bool = False
+        self._session_limit_fired: bool = False
+        self._on_session_warning: Optional[Callable] = None
+        self._on_session_limit: Optional[Callable] = None
     
     @property
     def params(self) -> Params:
@@ -117,9 +129,17 @@ class AudioEngine:
             left_np = np.array(left, dtype=np.float32)
             right_np = np.array(right, dtype=np.float32)
 
-            # Interleave for stereo output
+            # Hard safety limiter — independent of user gain
+            left_np = np.clip(left_np, -MAX_SAFE_AMPLITUDE, MAX_SAFE_AMPLITUDE)
+            right_np = np.clip(right_np, -MAX_SAFE_AMPLITUDE, MAX_SAFE_AMPLITUDE)
+
+            # Write to output buffer
             outdata[:, 0] = left_np
             outdata[:, 1] = right_np
+
+            # Session timer — accumulate rendered frames (int add, GIL-safe)
+            # Polled from meter thread via session_duration property — no callbacks
+            self._session_frames += frames
 
             # Update meters
             self._peak_l = max(self._peak_l * 0.95, np.abs(left_np).max())
@@ -141,7 +161,17 @@ class AudioEngine:
                         from aureonoise.analysis import analyze
                         buf_l = np.array(self._analysis_buffer_l)
                         buf_r = np.array(self._analysis_buffer_r)
-                        report = analyze(buf_l, buf_r, self.sample_rate)
+                        # Collect engine stats for the report
+                        eng_stats = None
+                        try:
+                            eng_stats = {
+                                'handshake_rate': self.engine.handshake_ratio(),
+                                'coherence': self.engine.coherence_mean(),
+                                'plv': self.engine.handshake_plv(),
+                            }
+                        except Exception:
+                            pass
+                        report = analyze(buf_l, buf_r, self.sample_rate, eng_stats)
                         self._on_analysis(report)
                     except Exception:
                         pass
@@ -186,6 +216,37 @@ class AudioEngine:
         Default 86 blocks ≈ 1 second at 512 block size / 44100 Hz."""
         self._on_analysis = callback
         self._analysis_interval = max(1, interval_blocks)
+
+    # ── Session timer ────────────────────────────────────────────────
+
+    @property
+    def session_duration(self) -> float:
+        """Elapsed playback time in seconds (accumulated from callback frames)."""
+        return self._session_frames / self.sample_rate if self.sample_rate > 0 else 0.0
+
+    @property
+    def max_session_duration(self) -> float:
+        """Maximum session duration in seconds (default 3600 = 1 hour)."""
+        return self._max_session_duration
+
+    @max_session_duration.setter
+    def max_session_duration(self, value: float):
+        self._max_session_duration = max(60.0, value)  # minimum 1 minute
+
+    def on_session_warning(self, callback: Optional[Callable]):
+        """Set callback fired at 80% of max session duration. fn(elapsed, max)."""
+        self._on_session_warning = callback
+
+    def on_session_limit(self, callback: Optional[Callable]):
+        """Set callback fired at 100% of max session duration. fn(elapsed, max).
+        Does NOT auto-stop — advisory only."""
+        self._on_session_limit = callback
+
+    def reset_session_timer(self):
+        """Reset session timer to zero. Call when starting a new session."""
+        self._session_frames = 0
+        self._session_warning_fired = False
+        self._session_limit_fired = False
 
     def get_meters(self) -> tuple:
         """Get current meter values: (peak_l, peak_r, rms_l, rms_r)"""

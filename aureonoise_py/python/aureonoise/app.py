@@ -114,8 +114,18 @@ class AureonoiseApp:
                 dpg.add_button(label="  Reset", callback=self._on_reset)
                 dpg.add_spacer(width=20)
                 dpg.add_text("", tag="status", color=COLORS["text_dim"])
+                dpg.add_spacer(width=20)
+                dpg.add_text("00:00", tag="txt_session_timer", color=COLORS["text_dim"])
 
-            dpg.add_spacer(height=10)
+            dpg.add_spacer(height=4)
+
+            # Safety warning panel
+            with dpg.child_window(height=50, border=False, tag="safety_panel"):
+                dpg.add_text("", tag="txt_warn_session", color=(220, 200, 60))
+                dpg.add_text("", tag="txt_warn_epilepsy", color=(220, 60, 60))
+                dpg.add_text("", tag="txt_warn_resonance", color=(220, 200, 60))
+
+            dpg.add_spacer(height=4)
 
             # Meters
             with dpg.child_window(height=60, border=False):
@@ -447,6 +457,60 @@ class AureonoiseApp:
                     dpg.add_text("", tag="txt_preset_active", color=COLORS["accent"])
                     dpg.add_text("", tag="txt_feature_summary", color=COLORS["text_dim"])
 
+                # ── Analysis tab ───────────────────────────────────
+                with dpg.tab(label="Analysis"):
+                    dpg.add_spacer(height=5)
+                    dpg.add_text("Real-Time Signal Analysis", color=COLORS["section"])
+                    dpg.add_text(
+                        "Spectral, stereo, and therapeutic quality metrics. "
+                        "Updates every ~1 second while playing.",
+                        color=COLORS["text_dim"], wrap=520)
+                    dpg.add_spacer(height=8)
+
+                    # Verdict banner
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Verdict:", color=COLORS["text_dim"])
+                        dpg.add_text("--", tag="txt_analysis_verdict",
+                                     color=COLORS["accent"])
+                    dpg.add_spacer(height=5)
+
+                    # Spectral
+                    dpg.add_text("Spectral", color=COLORS["section"])
+                    dpg.add_text("Slope: -- dB/oct", tag="txt_an_slope",
+                                 color=COLORS["text"])
+                    dpg.add_text("Centroid: -- Hz", tag="txt_an_centroid",
+                                 color=COLORS["text"])
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=3)
+
+                    # Stereo
+                    dpg.add_text("Stereo", color=COLORS["section"])
+                    dpg.add_text("Correlation: --", tag="txt_an_stereo",
+                                 color=COLORS["text"])
+                    dpg.add_text("ITD: -- us", tag="txt_an_itd",
+                                 color=COLORS["text"])
+                    dpg.add_text("ILD: 1k=-- dB  4k=-- dB", tag="txt_an_ild",
+                                 color=COLORS["text"])
+                    dpg.add_text("Bilateral sym: --", tag="txt_an_sym",
+                                 color=COLORS["text"])
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=3)
+
+                    # Level
+                    dpg.add_text("Level", color=COLORS["section"])
+                    dpg.add_text("RMS: -- dBFS  Peak: -- dBFS",
+                                 tag="txt_an_level", color=COLORS["text"])
+
+                    dpg.add_separator()
+                    dpg.add_spacer(height=3)
+
+                    # Warnings
+                    dpg.add_text("Warnings", color=COLORS["section"])
+                    dpg.add_text("--", tag="txt_an_warnings",
+                                 color=COLORS["meter_peak"], wrap=520)
+
                 # ── System tab ──────────────────────────────────────
                 with dpg.tab(label="System"):
                     dpg.add_spacer(height=5)
@@ -582,6 +646,12 @@ class AureonoiseApp:
 
     # ── Parameter dispatch ──────────────────────────────────────────
 
+    # Parameters that affect safety warnings — trigger re-evaluation
+    _SAFETY_PARAMS = frozenset({
+        "isochronic_rate_hz", "binaural_beat_hz",
+        "isochronic_on", "binaural_on",
+    })
+
     def _set_param(self, name: str, value):
         """Set parameter on audio engine."""
         self.audio.set_param(name, value)
@@ -596,6 +666,10 @@ class AureonoiseApp:
                 self.audio.set_param("burst", True)
             self._update_feature_summary()
 
+        # Re-evaluate safety warnings for relevant params
+        if name in self._SAFETY_PARAMS:
+            self._update_safety_warnings()
+
     # ── Mutual exclusion / dependency toggle handlers ────────────────
 
     def _on_binaural_toggle(self, sender, value, user_data):
@@ -604,6 +678,7 @@ class AureonoiseApp:
             self._set_param("isochronic_on", False)
             _safe_set("cb_isochronic_on", False)
         self._update_feature_summary()
+        self._update_safety_warnings()
 
     def _on_isochronic_toggle(self, sender, value, user_data):
         self._set_param("isochronic_on", value)
@@ -611,6 +686,7 @@ class AureonoiseApp:
             self._set_param("binaural_on", False)
             _safe_set("cb_binaural_on", False)
         self._update_feature_summary()
+        self._update_safety_warnings()
 
     def _on_dialogue_toggle(self, sender, value, user_data):
         self._set_param("dialogue_on", value)
@@ -703,6 +779,57 @@ class AureonoiseApp:
             pass
         summary = " + ".join(parts) if parts else "No active features"
         _safe_set("txt_feature_summary", summary)
+
+    # ── Safety warnings ─────────────────────────────────────────────
+
+    def _update_safety_warnings(self):
+        """Check current parameters and update safety warning text elements."""
+        warn_epilepsy = ""
+        warn_resonance = ""
+
+        try:
+            # Epilepsy warning: isochronic rate in 8-25 Hz range
+            iso_on = dpg.get_value("cb_isochronic_on")
+            if iso_on:
+                iso_rate = self.audio.get_param("isochronic_rate_hz")
+                if iso_rate is None:
+                    # Fallback: read from slider
+                    try:
+                        iso_rate = dpg.get_value("sl_isochronic_rate_hz")
+                    except Exception:
+                        iso_rate = 0.0
+                if iso_rate is not None and 8.0 <= float(iso_rate) <= 25.0:
+                    warn_epilepsy = (
+                        "Attenzione: frequenza isocronica nel range 8-25 Hz "
+                        "— rischio per soggetti fotosensibili"
+                    )
+
+            # Body resonance warning: isochronic or binaural frequency near
+            # 5-8 Hz (thoracic cavity) or ~19 Hz (eyeball)
+            freqs_to_check = []
+            if iso_on:
+                iso_rate = self.audio.get_param("isochronic_rate_hz")
+                if iso_rate is not None:
+                    freqs_to_check.append(float(iso_rate))
+
+            bin_on = dpg.get_value("cb_binaural_on")
+            if bin_on:
+                beat_hz = self.audio.get_param("binaural_beat_hz")
+                if beat_hz is not None:
+                    freqs_to_check.append(float(beat_hz))
+
+            for freq in freqs_to_check:
+                if (5.0 <= freq <= 8.0) or (18.0 <= freq <= 20.0):
+                    warn_resonance = (
+                        "Attenzione: frequenza vicina a risonanza corporea"
+                    )
+                    break
+
+        except Exception:
+            pass
+
+        _safe_set("txt_warn_epilepsy", warn_epilepsy)
+        _safe_set("txt_warn_resonance", warn_resonance)
 
     # ── Noise mode visibility toggle ────────────────────────────────
 
@@ -807,6 +934,7 @@ class AureonoiseApp:
         _safe_enable("cb_coherence_spatial", dialogue_on)
         _safe_enable("cb_bilateral_nesting", bilateral_on)
         self._update_feature_summary()
+        self._update_safety_warnings()
 
     # ── Audio device ─────────────────────────────────────────────────
 
@@ -841,6 +969,10 @@ class AureonoiseApp:
     def _on_play(self):
         """Play button handler."""
         if not self.audio.is_running():
+            # Wire analysis callback (~1 second interval at 512 block / 44.1kHz)
+            self.audio.on_analysis(self._on_analysis_report, interval_blocks=86)
+            # Session timer: meter thread polls session_duration (thread-safe)
+            # Do NOT wire audio-thread callbacks to DPG — DearPyGui is not thread-safe
             self.audio.start()
             dpg.set_value("status", "Playing")
 
@@ -854,13 +986,77 @@ class AureonoiseApp:
     def _on_reset(self):
         """Reset button handler."""
         self.audio.reset()
+        self.audio.reset_session_timer()
         dpg.set_value("status", "Reset — DSP state cleared")
+        _safe_set("txt_session_timer", "00:00")
+        _safe_set("txt_warn_session", "")
         # Clear dialogue metrics display
         _safe_set("meter_coherence", 0)
         _safe_configure("meter_coherence", overlay="0.000")
         _safe_set("txt_handshake_count", "0")
         _safe_set("txt_handshake_ratio", "0.000")
         _safe_set("txt_coherence_mean", "0.000")
+
+    # ── Session timer callbacks ─────────────────────────────────────
+
+    def _on_session_warning(self, elapsed: float, max_dur: float):
+        """Called from audio thread at 80% of max session duration."""
+        remaining = int(max_dur - elapsed)
+        r_min = remaining // 60
+        r_sec = remaining % 60
+        _safe_set("txt_warn_session",
+                  f"Sessione lunga — {r_min}:{r_sec:02d} rimanenti")
+
+    def _on_session_limit(self, elapsed: float, max_dur: float):
+        """Called from audio thread at 100% of max session duration."""
+        mins = int(elapsed) // 60
+        secs = int(elapsed) % 60
+        _safe_set("txt_warn_session",
+                  f"Limite sessione raggiunto ({mins}:{secs:02d}). "
+                  "Considera una pausa.")
+
+    # ── Analysis callback ──────────────────────────────────────────
+
+    def _on_analysis_report(self, report):
+        """Called from audio thread with an AnalysisReport. Updates GUI."""
+        try:
+            # Verdict
+            color = COLORS["meter_l"] if report.verdict == "OK" else (
+                COLORS["accent"] if report.verdict == "WARN" else COLORS["meter_peak"]
+            )
+            _safe_set("txt_analysis_verdict", report.verdict)
+
+            # Spectral
+            _safe_set("txt_an_slope",
+                       f"Slope: {report.spectral_slope:.2f} dB/oct "
+                       f"(R2={report.spectral_slope_r2:.2f})")
+            _safe_set("txt_an_centroid",
+                       f"Centroid: {report.spectral_centroid_hz:.0f} Hz  "
+                       f"Spread: {report.spectral_spread_hz:.0f} Hz")
+
+            # Stereo
+            _safe_set("txt_an_stereo",
+                       f"Correlation: {report.stereo_correlation:.3f}")
+            _safe_set("txt_an_itd",
+                       f"ITD: {report.itd_us:.1f} us")
+            _safe_set("txt_an_ild",
+                       f"ILD: 1k={report.ild_db_1k:.1f} dB  "
+                       f"4k={report.ild_db_4k:.1f} dB")
+            _safe_set("txt_an_sym",
+                       f"Bilateral sym: {report.bilateral_symmetry:.3f}")
+
+            # Level
+            _safe_set("txt_an_level",
+                       f"RMS: {report.rms_db:.1f} dBFS  "
+                       f"Peak: {report.peak_db:.1f} dBFS")
+
+            # Warnings
+            if report.warnings:
+                _safe_set("txt_an_warnings", "\n".join(report.warnings))
+            else:
+                _safe_set("txt_an_warnings", "No issues detected")
+        except Exception:
+            pass
 
     # ── Meter / coherence update thread ─────────────────────────────
 
@@ -876,6 +1072,31 @@ class AureonoiseApp:
                     try:
                         dpg.set_value("meter_l", min(pl, 1.0))
                         dpg.set_value("meter_r", min(pr, 1.0))
+                    except Exception:
+                        pass
+
+                    # Session timer display (MM:SS)
+                    try:
+                        elapsed = self.audio.session_duration
+                        mins = int(elapsed) // 60
+                        secs = int(elapsed) % 60
+                        dpg.set_value("txt_session_timer", f"{mins:02d}:{secs:02d}")
+
+                        # Session warning text
+                        max_dur = self.audio.max_session_duration
+                        ratio = elapsed / max_dur if max_dur > 0 else 0.0
+                        if ratio >= 1.0:
+                            _safe_set("txt_warn_session",
+                                      f"Limite sessione raggiunto ({mins}:{secs:02d}). "
+                                      "Considera una pausa.")
+                        elif ratio >= 0.8:
+                            remaining = int(max_dur - elapsed)
+                            r_min = remaining // 60
+                            r_sec = remaining % 60
+                            _safe_set("txt_warn_session",
+                                      f"Sessione lunga — {r_min}:{r_sec:02d} rimanenti")
+                        else:
+                            _safe_set("txt_warn_session", "")
                     except Exception:
                         pass
 

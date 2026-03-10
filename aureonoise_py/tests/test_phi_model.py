@@ -167,5 +167,71 @@ def test_torso_gains_scale_with_mix():
     assert high['gains'][1] > low['gains'][1]
 
 
+class TestPhiSpatialPipeline:
+    """Integration tests for spat_pinna and spat_distance params in Engine."""
+
+    def test_spat_distance_reduces_amplitude(self):
+        """spat_distance=1.0 should produce lower RMS than spat_distance=0.0."""
+        from aureonoise import Engine, Params
+        import numpy as np
+
+        # Baseline: no distance attenuation
+        e0 = Engine(44100.0)
+        p0 = Params()
+        p0.spat_distance = 0.0
+        p0.phi_distance = 0.8  # moderate distance
+        p0.dialogue_on = False
+        e0.set_params(p0)
+        l0, r0 = e0.process(int(44100 * 2))
+        rms0 = np.sqrt(np.mean(np.array(l0)**2 + np.array(r0)**2))
+
+        # With distance: full attenuation
+        e1 = Engine(44100.0)
+        p1 = Params()
+        p1.spat_distance = 1.0
+        p1.phi_distance = 0.8
+        p1.dialogue_on = False
+        e1.set_params(p1)
+        l1, r1 = e1.process(int(44100 * 2))
+        rms1 = np.sqrt(np.mean(np.array(l1)**2 + np.array(r1)**2))
+
+        assert rms1 < rms0 * 0.95, (
+            f"spat_distance=1.0 RMS {rms1:.4f} should be <95% of baseline {rms0:.4f}"
+        )
+
+    def test_spat_pinna_affects_amplitude(self):
+        """spat_pinna=1.0 should change RMS vs spat_pinna=0.0."""
+        from aureonoise import Engine, Params
+        import numpy as np
+
+        e0 = Engine(44100.0)
+        p0 = Params()
+        p0.spat_pinna = 0.0
+        p0.dialogue_on = False
+        e0.set_params(p0)
+        l0, r0 = e0.process(int(44100 * 2))
+        rms0 = np.sqrt(np.mean(np.array(l0)**2 + np.array(r0)**2))
+
+        e1 = Engine(44100.0)
+        p1 = Params()
+        p1.spat_pinna = 1.0
+        p1.dialogue_on = False
+        e1.set_params(p1)
+        l1, r1 = e1.process(int(44100 * 2))
+        rms1 = np.sqrt(np.mean(np.array(l1)**2 + np.array(r1)**2))
+
+        # Pinna reduces amplitude for center-panned grains — overall RMS should drop
+        assert rms1 < rms0, (
+            f"spat_pinna=1.0 RMS {rms1:.4f} should be less than baseline {rms0:.4f}"
+        )
+
+    def test_spat_params_default_zero_backward_compat(self):
+        """New params default to 0.0 — no behavior change."""
+        from aureonoise import Params
+        p = Params()
+        assert p.spat_pinna == 0.0, f"spat_pinna default should be 0.0, got {p.spat_pinna}"
+        assert p.spat_distance == 0.0, f"spat_distance default should be 0.0, got {p.spat_distance}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

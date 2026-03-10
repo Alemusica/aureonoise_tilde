@@ -50,6 +50,7 @@ class Preset:
             "env_decay": params.env_decay,
             "env_sustain": params.env_sustain,
             "env_release": params.env_release,
+            "envelope_shape": params.envelope_shape if hasattr(params, 'envelope_shape') else 0,
             # Timbre
             "noise_color": params.noise_color,
             "color_amt": params.color_amt,
@@ -119,6 +120,8 @@ class Preset:
             # Phi model
             "phi_distance": params.phi_distance,
             "phi_elev": params.phi_elev,
+            "spat_pinna": params.spat_pinna,
+            "spat_distance": params.spat_distance,
             # Polyrhythm
             "polyrhythm_on": params.polyrhythm_on,
             "polyrhythm_p": params.polyrhythm_p,
@@ -216,6 +219,7 @@ class PresetBank:
             "tinnitus_notch_hz": 0.0, "tinnitus_notch_q": 6.0,
             # Phi model
             "phi_distance": 1.5, "phi_elev": 0.0,
+            "spat_pinna": 0.0, "spat_distance": 0.0,
             # Polyrhythm
             "polyrhythm_on": False, "polyrhythm_p": 3, "polyrhythm_q": 2,
             "polyrhythm_rate": 0.5, "polyrhythm_amount": 0.5,
@@ -223,6 +227,10 @@ class PresetBank:
             "room_mix": 0.0,
             # Coherence spatial
             "coherence_spatial": False,
+            # Envelope shape (0=linear, 1=hann)
+            # Linear (0) for bilateral presets needing sharp onset <5ms (CC stimulation).
+            # Hann (1) for spectral neutrality in non-bilateral therapeutic presets.
+            "envelope_shape": 0,
             # System
             "seed": 20251010,
         }
@@ -294,6 +302,7 @@ class PresetBank:
             "lat_rate": 50.0, "lat_eps": INV_PHI_CU * 0.5,
             "lat_gamma": PHI * 0.8, "lat_sigma": 0.02,
             "seed": 20010101,
+            "spat_pinna": 0.5, "spat_distance": 0.6,  # deep spatial field
         })
 
         # ── Therapeutic presets ────────────────────────────────────────
@@ -302,6 +311,7 @@ class PresetBank:
             "L-R alternation for EMDR reprocessing therapy", {
             "rate": 8.0, "baselen_ms": 120.0, "len_phi": 0.7,
             "hemis_coupling": 0.90, "color_amt": 0.7,
+            "env_attack": 0.03, "env_decay": 0.20, "env_sustain": 0.55, "env_release": 0.30,
             "vhs_wow": 0.35, "vhs_flutter": 0.25,
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.35,
@@ -309,12 +319,13 @@ class PresetBank:
             "dialogue_on": True, "dialogue_strength": 0.8,
             "dialogue_memory": 0.6, "dialogue_phi_mix": 0.8,
             "phi_pan": False, "bilateral_on": True,
-            "bilateral_rate": 1.5, "bilateral_amount": 0.85,
+            "bilateral_rate": 1.2, "bilateral_amount": 0.85,  # Rousseau 2020: validated 1.0-1.3 Hz
             "bilateral_nesting": False,
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": True, "temp_ramp_sec": 20.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
+            "spat_pinna": 0.25, "spat_distance": 0.3,  # subtle phi spatial for externalization
         })
 
         _preset("ASMR Intimate",
@@ -336,6 +347,7 @@ class PresetBank:
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
+            "spat_pinna": 0.4, "spat_distance": 0.5,  # proximity: strong pinna + distance
         })
 
         _preset("Sleep Pink",
@@ -343,6 +355,7 @@ class PresetBank:
             "rate": 3.0, "baselen_ms": 500.0, "len_phi": 0.4,
             "width": 0.8,
             "env_attack": 0.3, "env_decay": 0.3, "env_sustain": 0.7, "env_release": 0.5,
+            "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "color_amt": 0.8,
             "thermo": True, "lattice": False, "burst": False,
             "temperature": 0.15,
@@ -360,6 +373,7 @@ class PresetBank:
             "rate": 10.0, "baselen_ms": 100.0, "len_phi": 0.6,
             "width": 0.9,
             "noise_color": 2, "color_amt": 0.75,
+            "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.30,
             "externalization": 0.3,
@@ -377,6 +391,7 @@ class PresetBank:
             "rate": 4.0, "baselen_ms": 250.0,
             "width": 1.0,
             "vhs_wow": 0.35, "vhs_flutter": 0.25,
+            "env_attack": 0.18, "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": True, "burst": True,
             "temperature": 0.35, "burst_floor": 0.3, "burst_phi_mix": 0.65,
             "externalization": 0.2,
@@ -394,7 +409,7 @@ class PresetBank:
             "rate": 8.0, "baselen_ms": 100.0, "len_phi": 0.7,
             "hemis_coupling": 0.85, "color_amt": 0.7,
             "vhs_wow": 0.35, "vhs_flutter": 0.25,
-            "env_attack": 0.15, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
+            "env_attack": 0.04, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
             "thermo": True, "lattice": True, "burst": True,
             "burst_floor": 0.4, "burst_phi_mix": 0.5,
             "temperature": 0.35,
@@ -408,6 +423,7 @@ class PresetBank:
             "modal_on": True, "modal_preset": 1, "modal_mix": 0.2,
             "modal_decay": 0.5, "modal_contralateral": 0.5,
             "polyrhythm_on": False, "coherence_spatial": False,
+            "spat_pinna": 0.2, "spat_distance": 0.25,  # subtle phi spatial + contralateral mirror
         })
 
         _preset("Sleep Delta Binaural",
@@ -415,6 +431,7 @@ class PresetBank:
             "rate": 3.0, "baselen_ms": 500.0, "len_phi": 0.4,
             "width": 0.8, "ild_db": 4.0, "hemis_coupling": 0.5,
             "env_attack": 0.3, "env_decay": 0.3, "env_sustain": 0.7, "env_release": 0.5,
+            "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": False, "burst": False,
             "temperature": 0.10,
             "dialogue_on": False,
@@ -434,6 +451,7 @@ class PresetBank:
             "width": 0.9, "ild_db": 5.0,
             "noise_color": 2, "color_amt": 0.75,
             "env_attack": 0.25, "env_decay": 0.3, "env_sustain": 0.6, "env_release": 0.4,
+            "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.18,
             "externalization": 0.15,
@@ -454,6 +472,7 @@ class PresetBank:
             "rate": 6.0, "baselen_ms": 200.0, "len_phi": 0.6,
             "ild_db": 5.0,
             "env_attack": 0.2, "env_sustain": 0.55, "env_release": 0.35,
+            "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.20,
             "externalization": 0.2,
@@ -474,6 +493,7 @@ class PresetBank:
             "width": 0.9,
             "noise_color": 2, "color_amt": 0.75,
             "env_attack": 0.15, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
+            "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.22,
             "externalization": 0.3,
@@ -494,6 +514,7 @@ class PresetBank:
             "width": 0.8, "itd_us": 500.0, "ild_db": 4.0, "hemis_coupling": 0.5,
             "color_amt": 0.75,
             "env_attack": 0.25, "env_decay": 0.3, "env_sustain": 0.6, "env_release": 0.4,
+            "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": False, "burst": False,
             "temperature": 0.15,
             "dialogue_on": False,
@@ -509,6 +530,7 @@ class PresetBank:
             "Gentle corpus callosum stimulation (bilateral 0.7 Hz, dialogue 0.5)", {
             "rate": 8.0, "baselen_ms": 120.0, "len_phi": 0.7,
             "ild_db": 5.0, "hemis_coupling": 0.7,
+            "env_attack": 0.03, "env_decay": 0.20, "env_sustain": 0.55, "env_release": 0.30,
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.20,
             "externalization": 0.3,
@@ -520,13 +542,14 @@ class PresetBank:
             "feedback_on": True, "temp_ramp_sec": 30.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
+            "spat_pinna": 0.2, "spat_distance": 0.2,  # gentle phi spatial
         })
 
         _preset("CC Maximum",
             "Maximum corpus callosum drive (bilateral 1.0 Hz, dialogue 0.85, feedback loop, contralateral mirror)", {
             "rate": 8.0, "baselen_ms": 100.0, "len_phi": 0.7,
             "hemis_coupling": 0.85,
-            "env_attack": 0.15, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
+            "env_attack": 0.04, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
             "thermo": True, "lattice": True, "burst": True,
             "burst_floor": 0.3, "burst_phi_mix": 0.6,
             "temperature": 0.22,
@@ -542,6 +565,7 @@ class PresetBank:
             "coherence_spatial": True, "room_mix": 0.15,
             "polyrhythm_on": True, "polyrhythm_p": 5, "polyrhythm_q": 3,
             "polyrhythm_rate": 1.0, "polyrhythm_amount": 0.3,
+            "spat_pinna": 0.3, "spat_distance": 0.35,  # full phi spatial pipeline
         })
 
         _preset("Delta Reset 3Hz",
@@ -550,6 +574,7 @@ class PresetBank:
             "width": 0.8, "itd_us": 500.0, "ild_db": 4.0, "hemis_coupling": 0.5,
             "noise_color": 2, "color_amt": 0.8,
             "env_attack": 0.3, "env_decay": 0.35, "env_sustain": 0.6, "env_release": 0.45,
+            "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": False, "burst": False,
             "temperature": 0.12,
             "dialogue_on": False,

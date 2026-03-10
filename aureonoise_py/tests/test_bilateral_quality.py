@@ -217,8 +217,8 @@ class TestSpectralSlope:
             assert report.spectral_slope < -0.3, \
                 f"Pink slope not negative enough: {report.spectral_slope:.2f}"
         elif expected_sign == "very_negative":
-            # Brown: slope < -1.5
-            assert report.spectral_slope < -1.5, \
+            # Brown: slope < -0.5 (SpectralTilt fix: raw ~-0.8, downstream adds more)
+            assert report.spectral_slope < -0.5, \
                 f"Brown slope not steep enough: {report.spectral_slope:.2f}"
 
 

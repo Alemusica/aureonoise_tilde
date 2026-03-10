@@ -129,24 +129,36 @@ impl Envelope {
     }
 
     /// Evaluate envelope at phase [0, 1]
+    /// curve: 0 = linear (default), 1 = Hann (raised cosine for attack/release)
     #[staticmethod]
-    pub fn eval(phase: f64, shape: &EnvelopeShape) -> f64 {
+    pub fn eval(phase: f64, shape: &EnvelopeShape, curve: i32) -> f64 {
         let phase = clamp01(phase);
-        
+
         if phase <= shape.attack_end {
-            // Attack: linear ramp up
-            phase / shape.attack_end.max(1.0e-6)
+            // Attack: ramp up 0→1
+            let t = phase / shape.attack_end.max(1.0e-6);
+            if curve == 1 {
+                // Hann: raised cosine 0.5*(1 - cos(π*t))
+                0.5 * (1.0 - (std::f64::consts::PI * t).cos())
+            } else {
+                t
+            }
         } else if phase <= shape.decay_end {
-            // Decay: linear ramp to sustain
+            // Decay: ramp from 1 to sustain
             let t = (phase - shape.attack_end) / (shape.decay_end - shape.attack_end).max(1.0e-6);
             1.0 + (shape.sustain_level - 1.0) * t
         } else if phase < shape.release_start {
             // Sustain: constant level
             shape.sustain_level
         } else {
-            // Release: linear ramp down
+            // Release: ramp down sustain→0
             let t = (phase - shape.release_start) / (1.0 - shape.release_start).max(1.0e-6);
-            shape.sustain_level * (1.0 - t)
+            if curve == 1 {
+                // Hann: raised cosine 0.5*(1 + cos(π*t)) scaled by sustain
+                shape.sustain_level * 0.5 * (1.0 + (std::f64::consts::PI * t).cos())
+            } else {
+                shape.sustain_level * (1.0 - t)
+            }
         }
     }
 }
@@ -162,23 +174,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_envelope_shape() {
+    fn test_envelope_shape_linear() {
         let shape = EnvelopeShape::default();
-        
+
         // Start at 0
-        let v = Envelope::eval(0.0, &shape);
+        let v = Envelope::eval(0.0, &shape, 0);
         assert!(v.abs() < 0.01);
-        
+
         // Peak at attack end
-        let v = Envelope::eval(shape.attack_end, &shape);
+        let v = Envelope::eval(shape.attack_end, &shape, 0);
         assert!((v - 1.0).abs() < 0.01);
-        
+
         // Sustain in middle
-        let v = Envelope::eval((shape.decay_end + shape.release_start) / 2.0, &shape);
+        let v = Envelope::eval((shape.decay_end + shape.release_start) / 2.0, &shape, 0);
         assert!((v - shape.sustain_level).abs() < 0.01);
-        
+
         // End at 0
-        let v = Envelope::eval(1.0, &shape);
+        let v = Envelope::eval(1.0, &shape, 0);
         assert!(v.abs() < 0.01);
+    }
+
+    #[test]
+    fn test_envelope_shape_hann() {
+        let shape = EnvelopeShape::default();
+
+        // Start at 0
+        let v = Envelope::eval(0.0, &shape, 1);
+        assert!(v.abs() < 0.01);
+
+        // Peak at attack end
+        let v = Envelope::eval(shape.attack_end, &shape, 1);
+        assert!((v - 1.0).abs() < 0.01);
+
+        // Sustain in middle
+        let v = Envelope::eval((shape.decay_end + shape.release_start) / 2.0, &shape, 1);
+        assert!((v - shape.sustain_level).abs() < 0.01);
+
+        // End at 0
+        let v = Envelope::eval(1.0, &shape, 1);
+        assert!(v.abs() < 0.01);
+
+        // Hann mid-attack should be lower than linear mid-attack
+        let mid_attack = shape.attack_end * 0.5;
+        let lin = Envelope::eval(mid_attack, &shape, 0);
+        let hann = Envelope::eval(mid_attack, &shape, 1);
+        assert!(hann < lin, "Hann mid-attack ({}) should be < linear ({})", hann, lin);
     }
 }
