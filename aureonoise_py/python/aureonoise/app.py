@@ -63,7 +63,50 @@ class AureonoiseApp:
         """Run the application."""
         dpg.create_context()
 
-        # Theme setup
+        self._setup_theme()
+
+        # Main window
+        with dpg.window(label="aureonoise", tag="main", no_title_bar=True):
+
+            # Header
+            dpg.add_text("aureonoise", color=COLORS["accent"])
+            dpg.add_text("phi-based granular texture generator", color=COLORS["text_dim"])
+            dpg.add_spacer(height=10)
+
+            # 4 tabs
+            with dpg.tab_bar():
+                self._build_presets_tab()
+                self._build_sound_tab()
+                self._build_space_brain_tab()
+                self._build_monitor_tab()
+
+        # Viewport setup
+        dpg.create_viewport(
+            title="aureonoise",
+            width=680,
+            height=820,
+            resizable=True,
+        )
+        dpg.setup_dearpygui()
+        dpg.set_primary_window("main", True)
+        dpg.show_viewport()
+
+        # Start meter update thread
+        self._start_meter_thread()
+
+        # Main loop
+        while dpg.is_dearpygui_running():
+            dpg.render_dearpygui_frame()
+
+        # Cleanup
+        self.running = False
+        self.audio.stop()
+        dpg.destroy_context()
+
+    # ── Theme setup ──────────────────────────────────────────────────
+
+    def _setup_theme(self):
+        """Set up global theme and per-button preset themes."""
         with dpg.theme() as global_theme:
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvThemeCol_WindowBg, COLORS["bg"])
@@ -99,13 +142,11 @@ class AureonoiseApp:
                     dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255, 255))
             self._btn_themes[name] = t
 
-        # Main window
-        with dpg.window(label="aureonoise", tag="main", no_title_bar=True):
+    # ── Tab builders ─────────────────────────────────────────────────
 
-            # Header
-            dpg.add_text("aureonoise", color=COLORS["accent"])
-            dpg.add_text("phi-based granular texture generator", color=COLORS["text_dim"])
-            dpg.add_spacer(height=10)
+    def _build_presets_tab(self):
+        """Landing tab: transport, safety, meters, preset grid, feature summary."""
+        with dpg.tab(label="Presets"):
 
             # Transport
             with dpg.group(horizontal=True):
@@ -139,448 +180,442 @@ class AureonoiseApp:
             dpg.add_separator()
             dpg.add_spacer(height=10)
 
-            # Parameters in tabs
-            with dpg.tab_bar():
+            # Preset grid
+            dpg.add_text("Evidence-Based Presets", color=COLORS["section"])
+            dpg.add_text(
+                "Each preset configures noise, spatial, dialogue and bilateral "
+                "parameters for a specific therapeutic context.",
+                color=COLORS["text_dim"], wrap=520)
+            dpg.add_spacer(height=10)
 
-                # ── Timing tab ──────────────────────────────────────
-                with dpg.tab(label="Timing"):
-                    dpg.add_spacer(height=5)
-                    self._slider("rate", "Rate (Hz)", 0.1, 60.0, 8.0, log=True)
-                    self._slider("baselen_ms", "Base Length (ms)", 10.0, 2000.0, 120.0, log=True)
-                    self._slider("len_phi", "Length phi Spread", 0.0, 1.0, 0.8)
+            # 5x3 button grid
+            row_items = list(FACTORY.items())
+            for row_start in range(0, len(row_items), 3):
+                row_slice = row_items[row_start:row_start + 3]
+                with dpg.group(horizontal=True):
+                    for name, (_key, _rgba) in row_slice:
+                        btn = dpg.add_button(
+                            label=f"  {name}  ",
+                            callback=self._make_preset_callback(name),
+                            height=40,
+                            width=170,
+                        )
+                        dpg.bind_item_theme(btn, self._btn_themes[name])
+                        dpg.add_spacer(width=5)
+                dpg.add_spacer(height=5)
 
-                # ── Spatial tab (expanded) ──────────────────────────
-                with dpg.tab(label="Spatial"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Stereo Field", color=COLORS["section"])
-                    self._slider("width", "Stereo Width", 0.0, 2.0, 1.0)
-                    self._slider("itd_us", "ITD (us)", 0.0, 800.0, 600.0)
-                    self._slider("ild_db", "ILD (dB)", 0.0, 12.0, 6.0)
-                    dpg.add_separator()
-                    self._slider("hemis_coupling", "Hemisphere Coupling", 0.0, 1.0, 0.6)
-                    self._slider("spat_ipd", "IPD Amount", 0.0, 1.0, 0.6)
-                    self._slider("spat_shadow", "Head Shadow", 0.0, 1.0, 0.7)
+            dpg.add_separator()
+            dpg.add_spacer(height=5)
+            dpg.add_text("", tag="txt_preset_active", color=COLORS["accent"])
+            dpg.add_text("", tag="txt_feature_summary", color=COLORS["text_dim"])
 
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Externalization", color=COLORS["section"])
-                    self._slider("externalization", "Externalization", 0.0, 1.0, 0.0)
-                    self._slider("phi_distance", "Phi Distance (m)", 0.0, 10.0, 1.5)
-                    self._slider("phi_elev", "Phi Elevation (deg)", -90.0, 90.0, 0.0)
+    def _build_sound_tab(self):
+        """Sound design tab: Noise, Grain, Envelope, Timbre, Spectral, Texture."""
+        with dpg.tab(label="Sound"):
 
-                    dpg.add_separator()
+            # ── Noise ──────────────────────────────────────────────
+            with dpg.collapsing_header(label="Noise", default_open=True):
+                dpg.add_spacer(height=5)
+                dpg.add_text("Noise Mode", color=COLORS["section"])
+                dpg.add_radio_button(
+                    NOISE_MODES,
+                    default_value="Pink",
+                    tag="radio_noise_mode",
+                    callback=self._on_noise_mode_change,
+                    horizontal=True,
+                )
+
+                dpg.add_separator()
+                dpg.add_spacer(height=5)
+
+                # Aureo params (visible when mode=3)
+                with dpg.group(tag="grp_aureo", show=False):
+                    dpg.add_text("Aureo Parameters", color=COLORS["section"])
+                    self._slider("aureo_decay", "Aureo Decay", 0.0, 1.0, 0.3)
+                    self._slider("aureo_stride", "Aureo Stride", 0.1, 4.0, 1.0)
+                    self._slider_int("aureo_harmonics", "Aureo Harmonics", 1, 32, 12)
                     dpg.add_spacer(height=5)
-                    dpg.add_text("Phi-Pan + Bilateral", color=COLORS["section"])
-                    dpg.add_checkbox(
-                        label="Phi-Pan", default_value=False,
+
+                # Quantum params (visible when mode=4)
+                with dpg.group(tag="grp_quantum", show=False):
+                    dpg.add_text("Quantum Parameters", color=COLORS["section"])
+                    self._slider("quantum_detail", "Quantum Detail", 0.0, 1.0, 0.7)
+                    self._slider("quantum_base", "Quantum Base (Hz)", 20.0, 2000.0, 220.0, log=True)
+                    dpg.add_spacer(height=5)
+
+                # Velvet params (visible when mode=5)
+                with dpg.group(tag="grp_velvet", show=False):
+                    dpg.add_text("Velvet Parameters", color=COLORS["section"])
+                    self._slider("velvet_density", "Velvet Density", 1.0, 96000.0, 2000.0, log=True)
+                    dpg.add_spacer(height=5)
+
+            # ── Grain ──────────────────────────────────────────────
+            with dpg.collapsing_header(label="Grain", default_open=False):
+                dpg.add_spacer(height=5)
+                self._slider("rate", "Rate (Hz)", 0.1, 60.0, 8.0, log=True)
+                self._slider("baselen_ms", "Base Length (ms)", 10.0, 2000.0, 120.0, log=True)
+                self._slider("len_phi", "Length phi Spread", 0.0, 1.0, 0.8)
+
+            # ── Envelope ───────────────────────────────────────────
+            with dpg.collapsing_header(label="Envelope", default_open=False):
+                dpg.add_spacer(height=5)
+                self._slider("env_attack", "Attack", 0.01, 1.0, 0.18)
+                self._slider("env_decay", "Decay", 0.01, 1.0, 0.28)
+                self._slider("env_sustain", "Sustain", 0.0, 1.0, 0.55)
+                self._slider("env_release", "Release", 0.01, 1.0, 0.30)
+
+            # ── Timbre ─────────────────────────────────────────────
+            with dpg.collapsing_header(label="Timbre", default_open=False):
+                dpg.add_spacer(height=5)
+                dpg.add_text("Noise color controlled in Noise section", color=COLORS["text_dim"])
+                dpg.add_separator()
+                self._slider("vhs_wow", "VHS Wow", 0.0, 1.0, 0.35)
+                self._slider("vhs_flutter", "VHS Flutter", 0.0, 1.0, 0.25)
+                self._slider("glitch_mix", "Glitch Mix", 0.0, 1.0, 0.5)
+                dpg.add_separator()
+                self._slider("srcrush_amt", "Sample Rate Crush", 0.0, 1.0, 0.2)
+                self._slider("bitcrush_amt", "Bit Crush", 0.0, 1.0, 0.15)
+
+            # ── Spectral ───────────────────────────────────────────
+            with dpg.collapsing_header(label="Spectral", default_open=False):
+                dpg.add_spacer(height=5)
+                dpg.add_text("Spectral Slope", color=COLORS["section"])
+                dpg.add_text(
+                    "Continuous tilt: 0=white, -1=pink, -2=brown.",
+                    color=COLORS["text_dim"], wrap=520)
+                self._slider("noise_slope", "Slope (dB/oct)", -2.5, 0.5, -1.0)
+
+            # ── Texture ────────────────────────────────────────────
+            with dpg.collapsing_header(label="Texture", default_open=False):
+                dpg.add_spacer(height=5)
+
+                # Modal resonator section
+                dpg.add_text("Modal Resonator", color=COLORS["section"])
+                dpg.add_checkbox(
+                    label="Modal On", default_value=False, tag="cb_modal_on",
+                    callback=self._on_modal_toggle)
+                dpg.add_spacer(height=5)
+                dpg.add_combo(
+                    MODAL_PRESETS,
+                    default_value="Wood",
+                    label="Preset",
+                    tag="combo_modal_preset",
+                    callback=lambda s, a, u: self._set_param("modal_preset",
+                        MODAL_PRESETS.index(a)),
+                    width=150,
+                )
+                dpg.add_spacer(height=5)
+                self._slider("modal_mix", "Mix", 0.0, 1.0, 0.3)
+                self._slider("modal_decay", "Decay", 0.0, 1.0, 0.5)
+                self._slider("modal_mirror", "Mirror", 0.0, 1.0, 0.3)
+                self._slider("modal_feedback", "Feedback", 0.0, 1.0, 0.1)
+                dpg.add_spacer(height=8)
+                dpg.add_text("Contralateral Mirror", color=COLORS["section"])
+                dpg.add_text(
+                    "Routes modal response to opposite hemisphere of burst events.",
+                    color=COLORS["text_dim"],
+                )
+                self._slider("modal_contralateral", "Contralateral", 0.0, 1.0, 0.0)
+
+                dpg.add_separator()
+                dpg.add_spacer(height=5)
+
+                # Stochastic section
+                dpg.add_text("Stochastic Processes", color=COLORS["section"])
+                with dpg.group(horizontal=True):
+                    dpg.add_checkbox(label="Thermo", default_value=True,
+                        tag="cb_thermo",
                         callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="phi_pan")
-                    dpg.add_checkbox(
-                        label="Bilateral On", default_value=False, tag="cb_bilateral_on",
-                        callback=self._on_bilateral_toggle)
-                    self._slider("bilateral_rate", "Bilateral Rate (Hz)", 0.3, 6.0, 1.0)
-                    self._slider("bilateral_amount", "Bilateral Amount", 0.0, 1.0, 0.8)
-
-                # ── Envelope tab ────────────────────────────────────
-                with dpg.tab(label="Envelope"):
-                    dpg.add_spacer(height=5)
-                    self._slider("env_attack", "Attack", 0.01, 1.0, 0.18)
-                    self._slider("env_decay", "Decay", 0.01, 1.0, 0.28)
-                    self._slider("env_sustain", "Sustain", 0.0, 1.0, 0.55)
-                    self._slider("env_release", "Release", 0.01, 1.0, 0.30)
-
-                # ── Timbre tab ──────────────────────────────────────
-                with dpg.tab(label="Timbre"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Noise color controlled in Noise tab", color=COLORS["text_dim"])
-                    dpg.add_separator()
-                    self._slider("vhs_wow", "VHS Wow", 0.0, 1.0, 0.35)
-                    self._slider("vhs_flutter", "VHS Flutter", 0.0, 1.0, 0.25)
-                    self._slider("glitch_mix", "Glitch Mix", 0.0, 1.0, 0.5)
-                    dpg.add_separator()
-                    self._slider("srcrush_amt", "Sample Rate Crush", 0.0, 1.0, 0.2)
-                    self._slider("bitcrush_amt", "Bit Crush", 0.0, 1.0, 0.15)
-
-                # ── Noise tab (extended 6 modes) ────────────────────
-                with dpg.tab(label="Noise"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Noise Mode", color=COLORS["section"])
-                    dpg.add_radio_button(
-                        NOISE_MODES,
-                        default_value="Pink",
-                        tag="radio_noise_mode",
-                        callback=self._on_noise_mode_change,
-                        horizontal=True,
-                    )
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-
-                    # Aureo params (visible when mode=3)
-                    with dpg.group(tag="grp_aureo", show=False):
-                        dpg.add_text("Aureo Parameters", color=COLORS["section"])
-                        self._slider("aureo_decay", "Aureo Decay", 0.0, 1.0, 0.3)
-                        self._slider("aureo_stride", "Aureo Stride", 0.1, 4.0, 1.0)
-                        self._slider_int("aureo_harmonics", "Aureo Harmonics", 1, 32, 12)
-                        dpg.add_spacer(height=5)
-
-                    # Quantum params (visible when mode=4)
-                    with dpg.group(tag="grp_quantum", show=False):
-                        dpg.add_text("Quantum Parameters", color=COLORS["section"])
-                        self._slider("quantum_detail", "Quantum Detail", 0.0, 1.0, 0.7)
-                        self._slider("quantum_base", "Quantum Base (Hz)", 20.0, 2000.0, 220.0, log=True)
-                        dpg.add_spacer(height=5)
-
-                    # Velvet params (visible when mode=5)
-                    with dpg.group(tag="grp_velvet", show=False):
-                        dpg.add_text("Velvet Parameters", color=COLORS["section"])
-                        self._slider("velvet_density", "Velvet Density", 1.0, 96000.0, 2000.0, log=True)
-                        dpg.add_spacer(height=5)
-
-                # ── Dialogue tab ────────────────────────────────────
-                with dpg.tab(label="Dialogue"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Interhemispheric Coherence", color=COLORS["section"])
-                    dpg.add_checkbox(
-                        label="Dialogue On", default_value=True, tag="cb_dialogue_on",
-                        callback=self._on_dialogue_toggle)
-                    dpg.add_spacer(height=5)
-                    self._slider("dialogue_strength", "Strength", 0.0, 1.0, 0.6)
-                    self._slider("dialogue_memory", "Memory", 0.0, 1.0, 0.5)
-                    self._slider("dialogue_phi_mix", "Phi Mix", 0.0, 1.0, 0.75)
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Engine Metrics", color=COLORS["section"])
-
-                    # Coherence meter
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Coherence:", color=COLORS["text_dim"])
-                        dpg.add_progress_bar(
-                            tag="meter_coherence", default_value=0, width=180,
-                            overlay="0.000")
-
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Handshakes:", color=COLORS["text_dim"])
-                        dpg.add_text("0", tag="txt_handshake_count")
-
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Handshake Ratio:", color=COLORS["text_dim"])
-                        dpg.add_text("0.000", tag="txt_handshake_ratio")
-
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Mean Coherence:", color=COLORS["text_dim"])
-                        dpg.add_text("0.000", tag="txt_coherence_mean")
-
-                # ── Modal tab ───────────────────────────────────────
-                with dpg.tab(label="Modal"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Modal Resonator", color=COLORS["section"])
-                    dpg.add_checkbox(
-                        label="Modal On", default_value=False, tag="cb_modal_on",
-                        callback=self._on_modal_toggle)
-                    dpg.add_spacer(height=5)
-                    dpg.add_combo(
-                        MODAL_PRESETS,
-                        default_value="Wood",
-                        label="Preset",
-                        tag="combo_modal_preset",
-                        callback=lambda s, a, u: self._set_param("modal_preset",
-                            MODAL_PRESETS.index(a)),
-                        width=150,
-                    )
-                    dpg.add_spacer(height=5)
-                    self._slider("modal_mix", "Mix", 0.0, 1.0, 0.3)
-                    self._slider("modal_decay", "Decay", 0.0, 1.0, 0.5)
-                    self._slider("modal_mirror", "Mirror", 0.0, 1.0, 0.3)
-                    self._slider("modal_feedback", "Feedback", 0.0, 1.0, 0.1)
-                    dpg.add_spacer(height=8)
-                    dpg.add_text("Contralateral Mirror", color=COLORS["section"])
-                    dpg.add_text(
-                        "Routes modal response to opposite hemisphere of burst events.",
-                        color=COLORS["text_dim"],
-                    )
-                    self._slider("modal_contralateral", "Contralateral", 0.0, 1.0, 0.0)
-
-                # ── Binaural tab ───────────────────────────────────
-                with dpg.tab(label="Binaural"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Binaural Beat Generator", color=COLORS["section"])
-                    dpg.add_text(
-                        "Separate sine tones per ear. Beat frequency = "
-                        "difference between L and R carrier.",
-                        color=COLORS["text_dim"], wrap=520)
-                    dpg.add_spacer(height=5)
-                    dpg.add_checkbox(
-                        label="Binaural On", default_value=False, tag="cb_binaural_on",
-                        callback=self._on_binaural_toggle)
-                    self._slider("binaural_carrier_hz", "Carrier (Hz)", 100.0, 500.0, 250.0)
-                    self._slider("binaural_beat_hz", "Beat (Hz)", 0.5, 40.0, 6.0)
-                    self._slider("binaural_level", "Level", 0.0, 0.3, 0.08)
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Isochronic Tone", color=COLORS["section"])
-                    dpg.add_text(
-                        "Pulsed carrier (Tukey-windowed AM). Mono, both ears.",
-                        color=COLORS["text_dim"], wrap=520)
-                    dpg.add_spacer(height=5)
-                    dpg.add_checkbox(
-                        label="Isochronic On", default_value=False, tag="cb_isochronic_on",
-                        callback=self._on_isochronic_toggle)
-                    self._slider("isochronic_carrier_hz", "Carrier (Hz)", 100.0, 500.0, 165.0)
-                    self._slider("isochronic_rate_hz", "Rate (Hz)", 1.0, 40.0, 10.0)
-                    self._slider("isochronic_duty", "Duty Cycle", 0.2, 0.8, 0.5)
-                    self._slider("isochronic_level", "Level", 0.0, 0.3, 0.10)
-
-                # ── Tinnitus / Notch tab ──────────────────────────
-                with dpg.tab(label="Tinnitus"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Tinnitus Notch Filter", color=COLORS["section"])
-                    dpg.add_text(
-                        "4th-order Butterworth notch at your tinnitus frequency. "
-                        "Set to 0 to disable.",
-                        color=COLORS["text_dim"], wrap=520)
-                    dpg.add_spacer(height=5)
-                    self._slider("tinnitus_notch_hz", "Center Freq (Hz)", 0.0, 12000.0, 0.0)
-                    self._slider("tinnitus_notch_q", "Q Factor", 1.0, 20.0, 6.0)
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Spectral Slope", color=COLORS["section"])
-                    dpg.add_text(
-                        "Continuous tilt: 0=white, -1=pink, -2=brown.",
-                        color=COLORS["text_dim"], wrap=520)
-                    self._slider("noise_slope", "Slope (dB/oct)", -2.5, 0.5, -1.0)
-
-                # ── Feedback / Spatial tab ─────────────────────────
-                with dpg.tab(label="Feedback"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Coherence Feedback Loop", color=COLORS["section"])
-                    dpg.add_text(
-                        "BAC-inspired closed-loop: high coherence calms, "
-                        "low coherence explores.",
-                        color=COLORS["text_dim"], wrap=520)
-                    dpg.add_spacer(height=5)
-                    dpg.add_checkbox(
-                        label="Feedback On", default_value=False, tag="cb_feedback_on",
-                        callback=self._on_feedback_toggle)
-                    self._slider("temp_ramp_sec", "Temp Ramp (s)", 0.0, 60.0, 0.0)
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Theta-Gamma Nesting", color=COLORS["section"])
-                    dpg.add_checkbox(
-                        label="Bilateral Nesting", default_value=False, tag="cb_bilateral_nesting",
-                        callback=self._on_bilateral_nesting_toggle)
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Coherence Spatial Morphing", color=COLORS["section"])
-                    dpg.add_text(
-                        "Width/ITD modulated by dialogue coherence.",
-                        color=COLORS["text_dim"], wrap=520)
-                    dpg.add_checkbox(
-                        label="Coherence Spatial", default_value=False, tag="cb_coherence_spatial",
-                        callback=self._on_coherence_spatial_toggle)
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Polyrhythm Clock", color=COLORS["section"])
-                    dpg.add_checkbox(
-                        label="Polyrhythm On", default_value=False, tag="cb_polyrhythm_on",
-                        callback=self._on_polyrhythm_toggle)
-                    self._slider_int("polyrhythm_p", "P (left)", 2, 8, 3)
-                    self._slider_int("polyrhythm_q", "Q (right)", 2, 8, 2)
-                    self._slider("polyrhythm_rate", "Base Rate (Hz)", 0.1, 3.0, 0.5)
-                    self._slider("polyrhythm_amount", "Amount", 0.0, 1.0, 0.5)
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Room Reverb", color=COLORS["section"])
-                    self._slider("room_mix", "Room Mix", 0.0, 0.5, 0.0)
-
-                # ── Stochastic tab ──────────────────────────────────
-                with dpg.tab(label="Stochastic"):
-                    dpg.add_spacer(height=5)
-                    with dpg.group(horizontal=True):
-                        dpg.add_checkbox(label="Thermo", default_value=True,
-                            tag="cb_thermo",
-                            callback=lambda s, a, u: self._set_param(u, a),
-                            user_data="thermo")
-                        dpg.add_checkbox(label="Lattice", default_value=True,
-                            tag="cb_lattice",
-                            callback=lambda s, a, u: self._set_param(u, a),
-                            user_data="lattice")
-                        dpg.add_checkbox(label="Burst", default_value=True,
-                            tag="cb_burst",
-                            callback=self._on_burst_toggle,
-                            user_data="burst")
-                    dpg.add_separator()
-                    self._slider("burst_floor", "Burst Floor", 0.0, 1.0, 0.3)
-                    self._slider("burst_phi_mix", "Burst Phi Mix", 0.0, 1.0, 0.5)
-                    dpg.add_separator()
-                    self._slider("temperature", "Temperature", 0.0, 1.0, 0.45)
-                    self._slider("lat_rate", "Lattice Rate", 1.0, 2000.0, 250.0, log=True)
-                    self._slider("lat_eps", "Lattice e", 0.01, 0.5, INV_PHI_CU)
-                    self._slider("lat_gamma", "Lattice g", 0.5, 3.0, PHI)
-                    self._slider("lat_sigma", "Lattice s", 0.01, 0.3, 0.06)
-
-                # ── Therapeutic tab ──────────────────────────────────
-                with dpg.tab(label="Therapeutic"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Evidence-Based Presets", color=COLORS["section"])
-                    dpg.add_text(
-                        "Each preset configures noise, spatial, dialogue and bilateral "
-                        "parameters for a specific therapeutic context.",
-                        color=COLORS["text_dim"], wrap=520)
-                    dpg.add_spacer(height=10)
-
-                    # 3x2 button grid
-                    row_items = list(FACTORY.items())
-                    for row_start in range(0, len(row_items), 3):
-                        row_slice = row_items[row_start:row_start + 3]
-                        with dpg.group(horizontal=True):
-                            for name, (_key, _rgba) in row_slice:
-                                btn = dpg.add_button(
-                                    label=f"  {name}  ",
-                                    callback=self._make_preset_callback(name),
-                                    height=40,
-                                    width=170,
-                                )
-                                dpg.bind_item_theme(btn, self._btn_themes[name])
-                                dpg.add_spacer(width=5)
-                        dpg.add_spacer(height=5)
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("", tag="txt_preset_active", color=COLORS["accent"])
-                    dpg.add_text("", tag="txt_feature_summary", color=COLORS["text_dim"])
-
-                # ── Analysis tab ───────────────────────────────────
-                with dpg.tab(label="Analysis"):
-                    dpg.add_spacer(height=5)
-                    dpg.add_text("Real-Time Signal Analysis", color=COLORS["section"])
-                    dpg.add_text(
-                        "Spectral, stereo, and therapeutic quality metrics. "
-                        "Updates every ~1 second while playing.",
-                        color=COLORS["text_dim"], wrap=520)
-                    dpg.add_spacer(height=8)
-
-                    # Verdict banner
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Verdict:", color=COLORS["text_dim"])
-                        dpg.add_text("--", tag="txt_analysis_verdict",
-                                     color=COLORS["accent"])
-                    dpg.add_spacer(height=5)
-
-                    # Spectral
-                    dpg.add_text("Spectral", color=COLORS["section"])
-                    dpg.add_text("Slope: -- dB/oct", tag="txt_an_slope",
-                                 color=COLORS["text"])
-                    dpg.add_text("Centroid: -- Hz", tag="txt_an_centroid",
-                                 color=COLORS["text"])
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=3)
-
-                    # Stereo
-                    dpg.add_text("Stereo", color=COLORS["section"])
-                    dpg.add_text("Correlation: --", tag="txt_an_stereo",
-                                 color=COLORS["text"])
-                    dpg.add_text("ITD: -- us", tag="txt_an_itd",
-                                 color=COLORS["text"])
-                    dpg.add_text("ILD: 1k=-- dB  4k=-- dB", tag="txt_an_ild",
-                                 color=COLORS["text"])
-                    dpg.add_text("Bilateral sym: --", tag="txt_an_sym",
-                                 color=COLORS["text"])
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=3)
-
-                    # Level
-                    dpg.add_text("Level", color=COLORS["section"])
-                    dpg.add_text("RMS: -- dBFS  Peak: -- dBFS",
-                                 tag="txt_an_level", color=COLORS["text"])
-
-                    dpg.add_separator()
-                    dpg.add_spacer(height=3)
-
-                    # Warnings
-                    dpg.add_text("Warnings", color=COLORS["section"])
-                    dpg.add_text("--", tag="txt_an_warnings",
-                                 color=COLORS["meter_peak"], wrap=520)
-
-                # ── System tab ──────────────────────────────────────
-                with dpg.tab(label="System"):
-                    dpg.add_spacer(height=5)
-
-                    # Audio device selector
-                    dpg.add_text("Audio Output", color=COLORS["section"])
-                    self._output_devices = self._get_output_devices()
-                    device_labels = [f"{idx}: {name}" for idx, name in self._output_devices]
-                    default_dev = sd.default.device[1] if sd else 0
-                    default_label = ""
-                    for idx, name in self._output_devices:
-                        if idx == default_dev:
-                            default_label = f"{idx}: {name}"
-                            break
-                    if not default_label and device_labels:
-                        default_label = device_labels[0]
-                    dpg.add_combo(
-                        device_labels,
-                        default_value=default_label,
-                        label="Output Device",
-                        tag="combo_audio_device",
-                        callback=self._on_device_change,
-                        width=350,
-                    )
-                    dpg.add_text(
-                        "Change device while stopped for best results.",
-                        color=COLORS["text_dim"], wrap=520)
-                    dpg.add_spacer(height=10)
-                    dpg.add_separator()
-
-                    dpg.add_spacer(height=5)
-                    dpg.add_input_int(
-                        label="Seed",
-                        default_value=20251010,
+                        user_data="thermo")
+                    dpg.add_checkbox(label="Lattice", default_value=True,
+                        tag="cb_lattice",
                         callback=lambda s, a, u: self._set_param(u, a),
-                        user_data="seed",
-                        width=150,
-                    )
-                    dpg.add_spacer(height=10)
-                    dpg.add_text(f"Sample Rate: {self.audio.sample_rate} Hz", color=COLORS["text_dim"])
-                    dpg.add_text(f"Block Size: {self.audio.block_size}", color=COLORS["text_dim"])
-                    dpg.add_spacer(height=10)
-                    dpg.add_text("phi Constants:", color=COLORS["accent"])
-                    dpg.add_text(f"  phi = {PHI:.6f}", color=COLORS["text_dim"])
-                    dpg.add_text(f"  1/phi = {INV_PHI:.6f}", color=COLORS["text_dim"])
-                    dpg.add_text(f"  1/phi^2 = {INV_PHI_SQ:.6f}", color=COLORS["text_dim"])
-                    dpg.add_text(f"  1/phi^3 = {INV_PHI_CU:.6f}", color=COLORS["text_dim"])
+                        user_data="lattice")
+                    dpg.add_checkbox(label="Burst", default_value=True,
+                        tag="cb_burst",
+                        callback=self._on_burst_toggle,
+                        user_data="burst")
+                dpg.add_separator()
+                self._slider("burst_floor", "Burst Floor", 0.0, 1.0, 0.3)
+                self._slider("burst_phi_mix", "Burst Phi Mix", 0.0, 1.0, 0.5)
+                dpg.add_separator()
+                self._slider("temperature", "Temperature", 0.0, 1.0, 0.45)
+                self._slider("lat_rate", "Lattice Rate", 1.0, 2000.0, 250.0, log=True)
+                self._slider("lat_eps", "Lattice e", 0.01, 0.5, INV_PHI_CU)
+                self._slider("lat_gamma", "Lattice g", 0.5, 3.0, PHI)
+                self._slider("lat_sigma", "Lattice s", 0.01, 0.3, 0.06)
 
-        # Viewport setup
-        dpg.create_viewport(
-            title="aureonoise",
-            width=680,
-            height=820,
-            resizable=True,
-        )
-        dpg.setup_dearpygui()
-        dpg.set_primary_window("main", True)
-        dpg.show_viewport()
+                dpg.add_separator()
+                dpg.add_spacer(height=5)
 
-        # Start meter update thread
-        self._start_meter_thread()
+                # Polyrhythm section
+                dpg.add_text("Polyrhythm Clock", color=COLORS["section"])
+                dpg.add_checkbox(
+                    label="Polyrhythm On", default_value=False, tag="cb_polyrhythm_on",
+                    callback=self._on_polyrhythm_toggle)
+                self._slider_int("polyrhythm_p", "P (left)", 2, 8, 3)
+                self._slider_int("polyrhythm_q", "Q (right)", 2, 8, 2)
+                self._slider("polyrhythm_rate", "Base Rate (Hz)", 0.1, 3.0, 0.5)
+                self._slider("polyrhythm_amount", "Amount", 0.0, 1.0, 0.5)
 
-        # Main loop
-        while dpg.is_dearpygui_running():
-            dpg.render_dearpygui_frame()
+    def _build_space_brain_tab(self):
+        """Space & Brain tab: Stereo Field, Bilateral, Externalization,
+        Entrainment, Dialogue, Feedback, Tinnitus."""
+        with dpg.tab(label="Space & Brain"):
 
-        # Cleanup
-        self.running = False
-        self.audio.stop()
-        dpg.destroy_context()
+            # ── Stereo Field ───────────────────────────────────────
+            with dpg.collapsing_header(label="Stereo Field", default_open=True):
+                dpg.add_spacer(height=5)
+                self._slider("width", "Stereo Width", 0.0, 2.0, 1.0)
+                self._slider("itd_us", "ITD (us)", 0.0, 800.0, 600.0)
+                self._slider("ild_db", "ILD (dB)", 0.0, 12.0, 6.0)
+                dpg.add_separator()
+                self._slider("hemis_coupling", "Hemisphere Coupling", 0.0, 1.0, 0.6)
+                self._slider("spat_ipd", "IPD Amount", 0.0, 1.0, 0.6)
+                self._slider("spat_shadow", "Head Shadow", 0.0, 1.0, 0.7)
+
+            # ── Bilateral ──────────────────────────────────────────
+            with dpg.collapsing_header(label="Bilateral", default_open=False):
+                dpg.add_spacer(height=5)
+                dpg.add_checkbox(
+                    label="Phi-Pan", default_value=False,
+                    callback=lambda s, a, u: self._set_param(u, a),
+                    user_data="phi_pan")
+                dpg.add_checkbox(
+                    label="Bilateral On", default_value=False, tag="cb_bilateral_on",
+                    callback=self._on_bilateral_toggle)
+                self._slider("bilateral_rate", "Bilateral Rate (Hz)", 0.3, 6.0, 1.0)
+                self._slider("bilateral_amount", "Bilateral Amount", 0.0, 1.0, 0.8)
+
+            # ── Externalization ─────────────────────────────────────
+            with dpg.collapsing_header(label="Externalization", default_open=False):
+                dpg.add_spacer(height=5)
+                self._slider("externalization", "Externalization", 0.0, 1.0, 0.0)
+                self._slider("phi_distance", "Phi Distance (m)", 0.0, 10.0, 1.5)
+                self._slider("phi_elev", "Phi Elevation (deg)", -90.0, 90.0, 0.0)
+                dpg.add_separator()
+                dpg.add_spacer(height=5)
+                dpg.add_text("Room Reverb", color=COLORS["section"])
+                self._slider("room_mix", "Room Mix", 0.0, 0.5, 0.0)
+
+            # ── Entrainment ────────────────────────────────────────
+            with dpg.collapsing_header(label="Entrainment", default_open=False):
+                dpg.add_spacer(height=5)
+
+                # Binaural Beat section
+                dpg.add_text("Binaural Beat Generator", color=COLORS["section"])
+                dpg.add_text(
+                    "Separate sine tones per ear. Beat frequency = "
+                    "difference between L and R carrier.",
+                    color=COLORS["text_dim"], wrap=520)
+                dpg.add_spacer(height=5)
+                dpg.add_checkbox(
+                    label="Binaural On", default_value=False, tag="cb_binaural_on",
+                    callback=self._on_binaural_toggle)
+                self._slider("binaural_carrier_hz", "Carrier (Hz)", 100.0, 500.0, 250.0)
+                self._slider("binaural_beat_hz", "Beat (Hz)", 0.5, 40.0, 6.0)
+                self._slider("binaural_level", "Level", 0.0, 0.3, 0.08)
+
+                dpg.add_separator()
+                dpg.add_spacer(height=5)
+
+                # Isochronic Tone section
+                dpg.add_text("Isochronic Tone", color=COLORS["section"])
+                dpg.add_text(
+                    "Pulsed carrier (Tukey-windowed AM). Mono, both ears.",
+                    color=COLORS["text_dim"], wrap=520)
+                dpg.add_spacer(height=5)
+                dpg.add_checkbox(
+                    label="Isochronic On", default_value=False, tag="cb_isochronic_on",
+                    callback=self._on_isochronic_toggle)
+                self._slider("isochronic_carrier_hz", "Carrier (Hz)", 100.0, 500.0, 165.0)
+                self._slider("isochronic_rate_hz", "Rate (Hz)", 1.0, 40.0, 10.0)
+                self._slider("isochronic_duty", "Duty Cycle", 0.2, 0.8, 0.5)
+                self._slider("isochronic_level", "Level", 0.0, 0.3, 0.10)
+
+            # ── Dialogue ───────────────────────────────────────────
+            with dpg.collapsing_header(label="Dialogue", default_open=False):
+                dpg.add_spacer(height=5)
+                dpg.add_text("Interhemispheric Coherence", color=COLORS["section"])
+                dpg.add_checkbox(
+                    label="Dialogue On", default_value=True, tag="cb_dialogue_on",
+                    callback=self._on_dialogue_toggle)
+                dpg.add_spacer(height=5)
+                self._slider("dialogue_strength", "Strength", 0.0, 1.0, 0.6)
+                self._slider("dialogue_memory", "Memory", 0.0, 1.0, 0.5)
+                self._slider("dialogue_phi_mix", "Phi Mix", 0.0, 1.0, 0.75)
+
+                dpg.add_separator()
+                dpg.add_spacer(height=5)
+                dpg.add_text("Engine Metrics", color=COLORS["section"])
+
+                # Coherence meter
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Coherence:", color=COLORS["text_dim"])
+                    dpg.add_progress_bar(
+                        tag="meter_coherence", default_value=0, width=180,
+                        overlay="0.000")
+
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Handshakes:", color=COLORS["text_dim"])
+                    dpg.add_text("0", tag="txt_handshake_count")
+
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Handshake Ratio:", color=COLORS["text_dim"])
+                    dpg.add_text("0.000", tag="txt_handshake_ratio")
+
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Mean Coherence:", color=COLORS["text_dim"])
+                    dpg.add_text("0.000", tag="txt_coherence_mean")
+
+            # ── Feedback ───────────────────────────────────────────
+            with dpg.collapsing_header(label="Feedback", default_open=False):
+                dpg.add_spacer(height=5)
+                dpg.add_text("Coherence Feedback Loop", color=COLORS["section"])
+                dpg.add_text(
+                    "BAC-inspired closed-loop: high coherence calms, "
+                    "low coherence explores.",
+                    color=COLORS["text_dim"], wrap=520)
+                dpg.add_spacer(height=5)
+                dpg.add_checkbox(
+                    label="Feedback On", default_value=False, tag="cb_feedback_on",
+                    callback=self._on_feedback_toggle)
+                self._slider("temp_ramp_sec", "Temp Ramp (s)", 0.0, 60.0, 0.0)
+
+                dpg.add_separator()
+                dpg.add_spacer(height=5)
+                dpg.add_text("Theta-Gamma Nesting", color=COLORS["section"])
+                dpg.add_checkbox(
+                    label="Bilateral Nesting", default_value=False, tag="cb_bilateral_nesting",
+                    callback=self._on_bilateral_nesting_toggle)
+
+                dpg.add_separator()
+                dpg.add_spacer(height=5)
+                dpg.add_text("Coherence Spatial Morphing", color=COLORS["section"])
+                dpg.add_text(
+                    "Width/ITD modulated by dialogue coherence.",
+                    color=COLORS["text_dim"], wrap=520)
+                dpg.add_checkbox(
+                    label="Coherence Spatial", default_value=False, tag="cb_coherence_spatial",
+                    callback=self._on_coherence_spatial_toggle)
+
+            # ── Tinnitus ───────────────────────────────────────────
+            with dpg.collapsing_header(label="Tinnitus", default_open=False):
+                dpg.add_spacer(height=5)
+                dpg.add_text("Tinnitus Notch Filter", color=COLORS["section"])
+                dpg.add_text(
+                    "4th-order Butterworth notch at your tinnitus frequency. "
+                    "Set to 0 to disable.",
+                    color=COLORS["text_dim"], wrap=520)
+                dpg.add_spacer(height=5)
+                self._slider("tinnitus_notch_hz", "Center Freq (Hz)", 0.0, 12000.0, 0.0)
+                self._slider("tinnitus_notch_q", "Q Factor", 1.0, 20.0, 6.0)
+
+    def _build_monitor_tab(self):
+        """Monitor tab: Analysis, System."""
+        with dpg.tab(label="Monitor"):
+
+            # ── Analysis ───────────────────────────────────────────
+            with dpg.collapsing_header(label="Analysis", default_open=True):
+                dpg.add_spacer(height=5)
+                dpg.add_text("Real-Time Signal Analysis", color=COLORS["section"])
+                dpg.add_text(
+                    "Spectral, stereo, and therapeutic quality metrics. "
+                    "Updates every ~1 second while playing.",
+                    color=COLORS["text_dim"], wrap=520)
+                dpg.add_spacer(height=8)
+
+                # Verdict banner
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Verdict:", color=COLORS["text_dim"])
+                    dpg.add_text("--", tag="txt_analysis_verdict",
+                                 color=COLORS["accent"])
+                dpg.add_spacer(height=5)
+
+                # Spectral
+                dpg.add_text("Spectral", color=COLORS["section"])
+                dpg.add_text("Slope: -- dB/oct", tag="txt_an_slope",
+                             color=COLORS["text"])
+                dpg.add_text("Centroid: -- Hz", tag="txt_an_centroid",
+                             color=COLORS["text"])
+
+                dpg.add_separator()
+                dpg.add_spacer(height=3)
+
+                # Stereo
+                dpg.add_text("Stereo", color=COLORS["section"])
+                dpg.add_text("Correlation: --", tag="txt_an_stereo",
+                             color=COLORS["text"])
+                dpg.add_text("ITD: -- us", tag="txt_an_itd",
+                             color=COLORS["text"])
+                dpg.add_text("ILD: 1k=-- dB  4k=-- dB", tag="txt_an_ild",
+                             color=COLORS["text"])
+                dpg.add_text("Bilateral sym: --", tag="txt_an_sym",
+                             color=COLORS["text"])
+
+                dpg.add_separator()
+                dpg.add_spacer(height=3)
+
+                # Level
+                dpg.add_text("Level", color=COLORS["section"])
+                dpg.add_text("RMS: -- dBFS  Peak: -- dBFS",
+                             tag="txt_an_level", color=COLORS["text"])
+
+                dpg.add_separator()
+                dpg.add_spacer(height=3)
+
+                # Warnings
+                dpg.add_text("Warnings", color=COLORS["section"])
+                dpg.add_text("--", tag="txt_an_warnings",
+                             color=COLORS["meter_peak"], wrap=520)
+
+            # ── System ─────────────────────────────────────────────
+            with dpg.collapsing_header(label="System", default_open=False):
+                dpg.add_spacer(height=5)
+
+                # Audio device selector
+                dpg.add_text("Audio Output", color=COLORS["section"])
+                self._output_devices = self._get_output_devices()
+                device_labels = [f"{idx}: {name}" for idx, name in self._output_devices]
+                default_dev = sd.default.device[1] if sd else 0
+                default_label = ""
+                for idx, name in self._output_devices:
+                    if idx == default_dev:
+                        default_label = f"{idx}: {name}"
+                        break
+                if not default_label and device_labels:
+                    default_label = device_labels[0]
+                dpg.add_combo(
+                    device_labels,
+                    default_value=default_label,
+                    label="Output Device",
+                    tag="combo_audio_device",
+                    callback=self._on_device_change,
+                    width=350,
+                )
+                dpg.add_text(
+                    "Change device while stopped for best results.",
+                    color=COLORS["text_dim"], wrap=520)
+                dpg.add_spacer(height=10)
+                dpg.add_separator()
+
+                dpg.add_spacer(height=5)
+                dpg.add_input_int(
+                    label="Seed",
+                    default_value=20251010,
+                    callback=lambda s, a, u: self._set_param(u, a),
+                    user_data="seed",
+                    width=150,
+                )
+                dpg.add_spacer(height=10)
+                dpg.add_text(f"Sample Rate: {self.audio.sample_rate} Hz", color=COLORS["text_dim"])
+                dpg.add_text(f"Block Size: {self.audio.block_size}", color=COLORS["text_dim"])
+                dpg.add_spacer(height=10)
+                dpg.add_text("phi Constants:", color=COLORS["accent"])
+                dpg.add_text(f"  phi = {PHI:.6f}", color=COLORS["text_dim"])
+                dpg.add_text(f"  1/phi = {INV_PHI:.6f}", color=COLORS["text_dim"])
+                dpg.add_text(f"  1/phi^2 = {INV_PHI_SQ:.6f}", color=COLORS["text_dim"])
+                dpg.add_text(f"  1/phi^3 = {INV_PHI_CU:.6f}", color=COLORS["text_dim"])
 
     # ── Widget helpers ──────────────────────────────────────────────
 
