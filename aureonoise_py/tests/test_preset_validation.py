@@ -462,7 +462,7 @@ EXPECTED_KEYS = {
     "rate", "baselen_ms", "len_phi", "width", "itd_us", "ild_db",
     "hemis_coupling", "spat_min_deg", "spat_min_ms", "spat_ipd", "spat_shadow",
     "env_attack", "env_decay", "env_sustain", "env_release",
-    "noise_color", "color_amt", "vhs_wow", "vhs_flutter", "glitch_mix",
+    "noise_color", "color_amt", "glitch_mix",
     "srcrush_amt", "bitcrush_amt",
     "thermo", "lattice", "burst", "temperature", "lat_rate",
     "lat_eps", "lat_gamma", "lat_sigma", "burst_floor", "burst_phi_mix",

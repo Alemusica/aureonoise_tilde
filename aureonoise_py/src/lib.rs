@@ -100,10 +100,6 @@ pub struct Params {
     #[pyo3(get, set)]
     pub color_amt: f64,
     #[pyo3(get, set)]
-    pub vhs_wow: f64,
-    #[pyo3(get, set)]
-    pub vhs_flutter: f64,
-    #[pyo3(get, set)]
     pub glitch_mix: f64,
     #[pyo3(get, set)]
     pub srcrush_amt: f64,
@@ -309,8 +305,6 @@ impl Default for Params {
             // Timbre
             noise_color: 1, // Pink
             color_amt: 0.65,
-            vhs_wow: 0.35,
-            vhs_flutter: 0.25,
             glitch_mix: 0.5,
             srcrush_amt: 0.2,
             bitcrush_amt: 0.15,
@@ -495,10 +489,6 @@ pub struct Engine {
     temp_start: f64,         // starting temperature
     temp_target: f64,        // target temperature
 
-    // LFO
-    lfo_wow_phase: f64,
-    lfo_flut_phase: f64,
-
     // Weighted-average pan per block (for DVF near-field)
     block_pan_sum: f64,
     block_pan_weight: f64,
@@ -613,8 +603,6 @@ impl Engine {
             temp_ramp_elapsed: 0.0,
             temp_start: init_temp,
             temp_target: init_temp,
-            lfo_wow_phase: 0.0,
-            lfo_flut_phase: 0.0,
             block_pan_sum: 0.0,
             block_pan_weight: 0.0,
             contra_delay: [0.0; 64],
@@ -765,8 +753,6 @@ impl Engine {
         self.temp_ramp_elapsed = 0.0;
         self.temp_start = self.params.temperature;
         self.temp_target = self.params.temperature;
-        self.lfo_wow_phase = 0.0;
-        self.lfo_flut_phase = 0.0;
         self.block_pan_sum = 0.0;
         self.block_pan_weight = 0.0;
         self.contra_delay = [0.0; 64];
@@ -934,10 +920,6 @@ impl Engine {
         self.tinnitus.set_params(self.params.tinnitus_notch_hz, self.params.tinnitus_notch_q, self.sr);
 
         // Pre-calculate constants
-        let wow_hz = map_phi_range(0.1, 1.5, clamp01(self.params.vhs_wow));
-        let flt_hz = map_phi_range(7.0, 12.0, clamp01(self.params.vhs_flutter));
-        let inc_wow = wow_hz / self.sr;
-        let inc_flt = flt_hz / self.sr;
         let lat_inc = clamp(self.params.lat_rate, 1.0, 2000.0) / self.sr;
         let itd_scale = self.params.itd_us * 1.0e-6 * self.sr;
         let ext_cfg = ExternalProcessor::prepare(self.params.externalization, self.sr);
@@ -995,16 +977,6 @@ impl Engine {
             // Update counters
             self.gap_elapsed += 1;
             
-            // Update LFOs
-            self.lfo_wow_phase += inc_wow;
-            if self.lfo_wow_phase >= 1.0 { self.lfo_wow_phase -= 1.0; }
-            self.lfo_flut_phase += inc_flt;
-            if self.lfo_flut_phase >= 1.0 { self.lfo_flut_phase -= 1.0; }
-            
-            let wow = (TWO_PI * self.lfo_wow_phase).sin();
-            let flt = (TWO_PI * self.lfo_flut_phase).sin();
-            let vhs_mod = 0.5 * wow + 0.5 * flt;
-            
             // Update stochastic processes
             if self.params.thermo || self.params.lattice {
                 self.lat_phase += lat_inc;
@@ -1052,14 +1024,15 @@ impl Engine {
             }
             // Tinnitus notch filter
             nz = self.tinnitus.process(nz);
-            nz = soft_tanh(nz * 1.2);
+            // No pre-clip: output stage soft_tanh handles clipping.
+            // Pre-clip was compressing brown noise peaks, flattening spectrum.
             self.ring.write(nz);
             let wi = self.ring.get_write_index();
             
             // Schedule new grain
             self.samples_to_next -= 1;
             if self.samples_to_next <= 0 {
-                self.spawn_grain(wi, vhs_mod, itd_scale, coh_spatial_mod, poly_pan_offset);
+                self.spawn_grain(wi, itd_scale, coh_spatial_mod, poly_pan_offset);
                 self.samples_to_next = self.schedule_gap_samples();
             }
             
@@ -1077,7 +1050,7 @@ impl Engine {
                 let env = Envelope::eval(phase, &grain.env, self.params.envelope_shape);
                 
                 // Read from ring with ITD + per-grain offset for decorrelation
-                let itd = grain.itd + vhs_mod * 0.25 * itd_scale;
+                let itd = grain.itd;
                 let base = (wi + RING_SIZE - grain.ring_offset) & RING_MASK;
                 let (mut s_l, mut s_r) = self.ring.read_stereo_itd(base, itd);
                 
@@ -1112,11 +1085,6 @@ impl Engine {
                 
                 // Glitch effects
                 match grain.kind {
-                    GrainKind::VhsDrop => {
-                        let att = 0.5 + 0.5 * (1.0 - vhs_mod.abs());
-                        s_l *= att;
-                        s_r *= att;
-                    }
                     GrainKind::Stutter => {
                         if (grain.age & 7) == 0 {
                             s_l *= 0.2;
@@ -1302,7 +1270,7 @@ impl Engine {
         }
     }
     
-    fn spawn_grain(&mut self, wi: usize, vhs_mod: f64, itd_scale: f64, coh_spatial_mod: f64, poly_pan_offset: f64) {
+    fn spawn_grain(&mut self, wi: usize, itd_scale: f64, coh_spatial_mod: f64, poly_pan_offset: f64) {
         let gi = self.grains.find_free();
         if gi < 0 { return; }
         

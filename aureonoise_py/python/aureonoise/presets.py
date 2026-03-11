@@ -54,8 +54,6 @@ class Preset:
             # Timbre
             "noise_color": params.noise_color,
             "color_amt": params.color_amt,
-            "vhs_wow": params.vhs_wow,
-            "vhs_flutter": params.vhs_flutter,
             "glitch_mix": params.glitch_mix,
             "srcrush_amt": params.srcrush_amt,
             "bitcrush_amt": params.bitcrush_amt,
@@ -180,12 +178,12 @@ class PresetBank:
             # Spatial
             "width": 1.0, "itd_us": 600.0, "ild_db": 6.0,
             "hemis_coupling": 0.6, "spat_min_deg": 12.0, "spat_min_ms": 35.0,
-            "spat_ipd": 0.6, "spat_shadow": 0.7,
+            "spat_ipd": 0.6, "spat_shadow": 0.3,
             # Envelope
             "env_attack": 0.18, "env_decay": 0.28, "env_sustain": 0.55, "env_release": 0.30,
             # Timbre
             "noise_color": 1, "color_amt": 0.7,
-            "vhs_wow": 0.0, "vhs_flutter": 0.0, "glitch_mix": 0.0,
+            "glitch_mix": 0.0,
             "srcrush_amt": 0.0, "bitcrush_amt": 0.0,
             # Stochastic
             "thermo": True, "lattice": True, "burst": False,
@@ -249,20 +247,21 @@ class PresetBank:
         # ── Non-therapeutic presets ────────────────────────────────────
 
         _preset("Default", "Default phi-balanced texture", {
+            "rate": 8.0, "baselen_ms": 400.0,  # overlap 3.2
             "color_amt": 0.65,
-            "vhs_wow": 0.35, "vhs_flutter": 0.25, "glitch_mix": 0.5,
             "srcrush_amt": 0.2, "bitcrush_amt": 0.15,
             "burst": True, "temperature": 0.45,
+            "envelope_shape": 1,
         })
 
         _preset("Calm Rain", "Gentle rain-like texture", {
-            "rate": 12.0, "baselen_ms": 80.0, "len_phi": 0.5,
+            "rate": 12.0, "baselen_ms": 300.0, "len_phi": 0.5,  # overlap 3.6
             "width": 1.2, "itd_us": 500.0, "ild_db": 4.0,
             "hemis_coupling": 0.4, "spat_min_deg": 15.0, "spat_min_ms": 40.0,
             "spat_ipd": 0.5, "spat_shadow": 0.6,
             "env_attack": 0.25, "env_decay": 0.35, "env_sustain": 0.4, "env_release": 0.4,
+            "envelope_shape": 1,
             "noise_color": 2, "color_amt": 0.7,
-            "vhs_wow": 0.1, "vhs_flutter": 0.1, "glitch_mix": 0.1,
             "temperature": 0.3, "lat_rate": 150.0, "lat_sigma": 0.04,
         })
 
@@ -273,7 +272,6 @@ class PresetBank:
             "spat_ipd": 0.8, "spat_shadow": 0.8,
             "env_attack": 0.05, "env_decay": 0.15, "env_sustain": 0.7, "env_release": 0.15,
             "noise_color": 0, "color_amt": 0.5,
-            "vhs_wow": 0.6, "vhs_flutter": 0.5, "glitch_mix": 0.9,
             "srcrush_amt": 0.5, "bitcrush_amt": 0.4,
             "burst": True, "temperature": 0.8,
             "lat_rate": 400.0, "lat_eps": INV_PHI_SQ,
@@ -287,7 +285,6 @@ class PresetBank:
             "spat_ipd": 0.4, "spat_shadow": 0.5,
             "env_attack": 0.02, "env_decay": 0.1, "env_sustain": 0.3, "env_release": 0.2,
             "color_amt": 0.8,
-            "vhs_wow": 0.4, "vhs_flutter": 0.3, "glitch_mix": 0.3,
             "srcrush_amt": 0.1, "bitcrush_amt": 0.2,
             "lattice": False, "burst": True, "temperature": 0.5,
             "lat_rate": 200.0, "lat_sigma": 0.05,
@@ -295,13 +292,12 @@ class PresetBank:
         })
 
         _preset("Deep Space", "Sparse cosmic drones", {
-            "rate": 2.0, "baselen_ms": 800.0, "len_phi": 0.9,
+            "rate": 3.0, "baselen_ms": 1200.0, "len_phi": 0.9,  # overlap 3.6
             "width": 2.0, "itd_us": 800.0, "ild_db": 10.0,
             "hemis_coupling": 0.9, "spat_min_deg": 20.0, "spat_min_ms": 50.0,
             "spat_ipd": 0.7, "spat_shadow": 0.9,
             "env_attack": 0.4, "env_decay": 0.5, "env_sustain": 0.6, "env_release": 0.5,
             "noise_color": 2, "color_amt": 0.9,
-            "vhs_wow": 0.2, "vhs_flutter": 0.1, "glitch_mix": 0.2,
             "temperature": 0.2,
             "lat_rate": 50.0, "lat_eps": INV_PHI_CU * 0.5,
             "lat_gamma": PHI * 0.8, "lat_sigma": 0.02,
@@ -313,10 +309,9 @@ class PresetBank:
 
         _preset("EMDR Bilateral",
             "L-R alternation for EMDR reprocessing therapy", {
-            "rate": 8.0, "baselen_ms": 120.0, "len_phi": 0.7,
+            "rate": 10.0, "baselen_ms": 200.0, "len_phi": 0.7,  # overlap 2.0 (discrete for CC)
             "hemis_coupling": 0.90, "color_amt": 0.7,
-            "env_attack": 0.03, "env_decay": 0.20, "env_sustain": 0.55, "env_release": 0.30,
-            "vhs_wow": 0.35, "vhs_flutter": 0.25,
+            "env_attack": 0.02, "env_decay": 0.20, "env_sustain": 0.55, "env_release": 0.30,  # onset 4.0ms <5ms
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.22,  # SR-optimal range 0.18-0.25 (SYNTHESIS.md)
             "sr_on": True,  # Collins 1995: adaptive noise for pattern detection
@@ -334,13 +329,12 @@ class PresetBank:
         })
 
         _preset("ASMR Intimate",
-            "Micro-transients with proximity sensation for ASMR", {
-            "rate": 6.0, "baselen_ms": 200.0, "len_phi": 0.5,
+            "Micro-transients with proximity sensation for ASMR tingles", {
+            "rate": 14.0, "baselen_ms": 300.0, "len_phi": 0.5,  # overlap 4.2 (dense light touches)
             "width": 0.6, "hemis_coupling": 0.6,
             "spat_ipd": 0.70,
             "env_attack": 0.25, "env_decay": 0.35, "env_sustain": 0.4, "env_release": 0.4,
             "noise_color": 2, "color_amt": 0.8,
-            "vhs_wow": 0.35, "vhs_flutter": 0.25,
             "thermo": True, "lattice": True, "burst": True,
             "temperature": 0.25, "burst_floor": 0.2, "burst_phi_mix": 0.7,
             "externalization": 0.1,
@@ -352,12 +346,13 @@ class PresetBank:
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
+            "envelope_shape": 1,  # hann for smooth overlapping tingles
             "spat_pinna": 0.4, "spat_distance": 0.5,  # proximity: strong pinna + distance
         })
 
         _preset("Sleep Pink",
             "Slow-wave sleep promotion with pink noise", {
-            "rate": 3.0, "baselen_ms": 800.0, "len_phi": 0.3,  # SYNTHESIS.md: 800-1200ms for continuity
+            "rate": 5.0, "baselen_ms": 800.0, "len_phi": 0.3,  # overlap 4.0 — continuous bed
             "width": 0.8,
             "env_attack": 0.3, "env_decay": 0.3, "env_sustain": 0.7, "env_release": 0.5,
             "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
@@ -375,7 +370,7 @@ class PresetBank:
 
         _preset("Focus Brown",
             "Attention and working memory enhancement with brown noise", {
-            "rate": 10.0, "baselen_ms": 100.0, "len_phi": 0.6,
+            "rate": 8.0, "baselen_ms": 500.0, "len_phi": 0.6,  # overlap 4.0 — continuous focus bed
             "width": 0.9,
             "noise_color": 2, "color_amt": 0.75,
             "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
@@ -393,9 +388,8 @@ class PresetBank:
 
         _preset("Theta Drift",
             "Bridge EMDR+ASMR with theta-band oscillation", {
-            "rate": 4.0, "baselen_ms": 250.0,
+            "rate": 6.0, "baselen_ms": 600.0,  # overlap 3.6
             "width": 1.0,
-            "vhs_wow": 0.35, "vhs_flutter": 0.25,
             "env_attack": 0.18, "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
             "thermo": True, "lattice": True, "burst": True,
             "temperature": 0.25, "burst_floor": 0.3, "burst_phi_mix": 0.65,  # SR-optimal 0.18-0.25
@@ -411,10 +405,9 @@ class PresetBank:
 
         _preset("Hemispheric Bridge",
             "Alpha-band bilateral stimulation for corpus callosum synchronization with contralateral mirror", {
-            "rate": 8.0, "baselen_ms": 100.0, "len_phi": 0.7,
+            "rate": 10.0, "baselen_ms": 200.0, "len_phi": 0.7,  # overlap 2.0 (discrete for CC)
             "hemis_coupling": 0.85, "color_amt": 0.7,
-            "vhs_wow": 0.35, "vhs_flutter": 0.25,
-            "env_attack": 0.04, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
+            "env_attack": 0.02, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,  # onset 4.0ms <5ms
             "thermo": True, "lattice": True, "burst": True,
             "burst_floor": 0.4, "burst_phi_mix": 0.5,
             "temperature": 0.25,  # SR-optimal range 0.18-0.25 (SYNTHESIS.md)
@@ -434,7 +427,7 @@ class PresetBank:
 
         _preset("Sleep Delta Binaural",
             "Delta binaural beat (2.5 Hz) in pink noise for deep sleep (Jirakittayakorn 2017)", {
-            "rate": 3.0, "baselen_ms": 500.0, "len_phi": 0.4,
+            "rate": 5.0, "baselen_ms": 700.0, "len_phi": 0.4,  # overlap 3.5 — continuous sleep bed
             "width": 0.8, "ild_db": 4.0, "hemis_coupling": 0.5,
             "env_attack": 0.3, "env_decay": 0.3, "env_sustain": 0.7, "env_release": 0.5,
             "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
@@ -453,7 +446,7 @@ class PresetBank:
 
         _preset("Theta Meditation",
             "Theta binaural beat (6 Hz) in brown noise for meditation (Lavallee 2011)", {
-            "rate": 4.0, "baselen_ms": 300.0, "len_phi": 0.6,
+            "rate": 6.0, "baselen_ms": 600.0, "len_phi": 0.6,  # overlap 3.6 — meditation bed
             "width": 0.9, "ild_db": 5.0,
             "noise_color": 2, "color_amt": 0.75,
             "env_attack": 0.25, "env_decay": 0.3, "env_sustain": 0.6, "env_release": 0.4,
@@ -475,7 +468,7 @@ class PresetBank:
 
         _preset("Alpha Relax",
             "Alpha binaural beat (10 Hz) in pink noise for relaxation (Solca 2016)", {
-            "rate": 6.0, "baselen_ms": 200.0, "len_phi": 0.6,
+            "rate": 7.0, "baselen_ms": 500.0, "len_phi": 0.6,  # overlap 3.5 — relaxation bed
             "ild_db": 5.0,
             "env_attack": 0.2, "env_sustain": 0.55, "env_release": 0.35,
             "envelope_shape": 1,  # hann for spectral neutrality (no bilateral onset requirement)
@@ -494,8 +487,8 @@ class PresetBank:
         })
 
         _preset("Gamma Focus",
-            "40 Hz isochronic entrainment in brown noise (MIT GENUS: 69% reduced atrophy)", {
-            "rate": 10.0, "baselen_ms": 100.0, "len_phi": 0.6,
+            "40 Hz gamma — MIT GENUS Alzheimer's prevention (Martorell 2019: 69% reduced amyloid/tau)", {
+            "rate": 10.0, "baselen_ms": 400.0, "len_phi": 0.6,  # overlap 4.0 — continuous focus bed
             "width": 0.9,
             "noise_color": 2, "color_amt": 0.75,
             "env_attack": 0.15, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
@@ -516,7 +509,7 @@ class PresetBank:
 
         _preset("Tinnitus Relief",
             "Notch-filtered pink noise at customizable tinnitus frequency", {
-            "rate": 5.0, "baselen_ms": 300.0, "len_phi": 0.5,
+            "rate": 6.0, "baselen_ms": 600.0, "len_phi": 0.5,  # overlap 3.6 — continuous mask
             "width": 0.8, "itd_us": 500.0, "ild_db": 4.0, "hemis_coupling": 0.5,
             "color_amt": 0.75,
             "env_attack": 0.25, "env_decay": 0.3, "env_sustain": 0.6, "env_release": 0.4,
@@ -534,9 +527,9 @@ class PresetBank:
 
         _preset("CC Gentle",
             "Gentle corpus callosum stimulation (bilateral 0.7 Hz, dialogue 0.5)", {
-            "rate": 8.0, "baselen_ms": 120.0, "len_phi": 0.7,
+            "rate": 10.0, "baselen_ms": 200.0, "len_phi": 0.7,  # overlap 2.0 (discrete for CC)
             "ild_db": 5.0, "hemis_coupling": 0.7,
-            "env_attack": 0.03, "env_decay": 0.20, "env_sustain": 0.55, "env_release": 0.30,
+            "env_attack": 0.02, "env_decay": 0.20, "env_sustain": 0.55, "env_release": 0.30,  # onset 4.0ms <5ms
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.20,
             "sr_on": True,  # Collins 1995: adaptive noise for pattern detection
@@ -554,9 +547,9 @@ class PresetBank:
 
         _preset("CC Maximum",
             "Maximum corpus callosum drive (bilateral 1.0 Hz, dialogue 0.85, feedback loop, contralateral mirror)", {
-            "rate": 8.0, "baselen_ms": 100.0, "len_phi": 0.7,
+            "rate": 10.0, "baselen_ms": 180.0, "len_phi": 0.7,  # overlap 1.8 (discrete for CC)
             "hemis_coupling": 0.85,
-            "env_attack": 0.04, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,
+            "env_attack": 0.025, "env_decay": 0.25, "env_sustain": 0.6, "env_release": 0.25,  # onset 4.5ms <5ms
             "thermo": True, "lattice": True, "burst": True,
             "burst_floor": 0.3, "burst_phi_mix": 0.6,
             "temperature": 0.22,
@@ -577,8 +570,8 @@ class PresetBank:
         })
 
         _preset("Delta Reset 3Hz",
-            "3 Hz delta isochronic for prayer state / deep reset (Slezin 2003)", {
-            "rate": 3.0, "baselen_ms": 400.0, "len_phi": 0.5,
+            "3 Hz delta isochronic — Slezin 2003 (Russia) prayer state / deep cortical reset", {
+            "rate": 5.0, "baselen_ms": 700.0, "len_phi": 0.5,  # overlap 3.5 — deep bed
             "width": 0.8, "itd_us": 500.0, "ild_db": 4.0, "hemis_coupling": 0.5,
             "noise_color": 2, "color_amt": 0.8,
             "env_attack": 0.3, "env_decay": 0.35, "env_sustain": 0.6, "env_release": 0.45,
@@ -599,9 +592,10 @@ class PresetBank:
 
         _preset("Schumann 7.83Hz",
             "7.83 Hz Schumann resonance at theta/alpha border (Earth's electromagnetic pulse)", {
-            "rate": 6.0, "baselen_ms": 200.0, "len_phi": 0.6,
+            "rate": 7.0, "baselen_ms": 500.0, "len_phi": 0.6,  # overlap 3.5 — relaxation bed
             "ild_db": 5.0,
             "env_attack": 0.2, "env_sustain": 0.55, "env_release": 0.35,
+            "envelope_shape": 1,  # hann for spectral neutrality
             "thermo": True, "lattice": True, "burst": False,
             "temperature": 0.20,
             "sr_on": True,  # Collins 1995: adaptive noise for pattern detection

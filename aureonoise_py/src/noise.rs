@@ -35,7 +35,6 @@ pub enum NoiseMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GrainKind {
     Burst = 0,
-    VhsDrop = 1,
     Stutter = 2,
     Aliaser = 3,
 }
@@ -44,9 +43,7 @@ impl GrainKind {
     /// Choose grain kind based on glitch mix and random value
     pub fn choose(mix: f64, u: f64) -> Self {
         let m = clamp01(mix);
-        if u < 0.25 * m {
-            GrainKind::VhsDrop
-        } else if u < 0.60 * m {
+        if u < 0.40 * m {
             GrainKind::Stutter
         } else if u < 1.00 * m {
             GrainKind::Aliaser
@@ -150,12 +147,11 @@ impl NoiseColorState {
                 (1.0 - amt) * w + amt * self.pink.process(w)
             }
             NoiseColor::Brown => {
-                // Brown noise: single-pole leaky integrator (~23 Hz cutoff)
-                // mixed with white to produce ~-0.8 dB/oct raw slope.
-                // Downstream grain envelope + soft_tanh add ~-1 to -1.5 dB/oct
-                // → measured output lands at target -2 dB/oct (±1.5 tolerance).
+                // Brown noise: single-pole leaky integrator (~21 Hz cutoff at 44.1kHz).
+                // Pure integrator output (no white mix) gives PSD ∝ 1/f² = -6 dB/oct.
+                // Normalization 0.04 keeps peaks within soft_tanh linear range.
                 self.z1 = 0.997 * self.z1 + w;
-                let brown = 0.014 * self.z1 + 0.65 * w;
+                let brown = self.z1 * 0.04;
                 (1.0 - amt) * w + amt * brown
             }
         }
@@ -174,10 +170,10 @@ impl Default for NoiseColorState {
 /// noise_slope: 0.0=White, -1.0=Pink, -2.0=Brown (continuous interpolation).
 /// Extends to +0.5 (brightened white) via gentle highpass.
 ///
-/// Brown path: single-pole leaky integrator (cutoff ~23 Hz at 48 kHz)
-/// mixed with white noise to produce ~-0.8 dB/oct raw slope.
-/// Downstream grain envelope windowing (+soft_tanh) adds ~-1 to -1.5 dB/oct,
-/// landing the measured output at the target -2 dB/oct (±1.5 tolerance).
+/// Pink path: Paul Kellet 6-stage IIR → PSD ∝ 1/f (beta=1, -3 dB/oct).
+/// Brown path: single-pole leaky integrator (fc ~21 Hz at 44.1kHz),
+/// pure output (no white mix) → PSD ∝ 1/f² (beta=2, -6 dB/oct).
+/// Normalization 0.04 keeps peaks in soft_tanh linear range.
 #[derive(Clone, Debug)]
 pub struct SpectralTilt {
     pink: PinkFilter,
@@ -201,21 +197,14 @@ impl SpectralTilt {
     /// Process white noise sample through continuous spectral tilt.
     /// slope in [-2.0, +0.5]. Always runs both pink and brown to keep
     /// filter states warm, then crossfades.
-    ///
-    /// Brown path design:
-    ///   Single-pole at ~23 Hz (a=0.997 @ 48 kHz) gives -6 dB/oct raw.
-    ///   Mixed with white at ratio 0.014 * z1 + 0.65 * white to produce
-    ///   ~-0.8 dB/oct across 100-8000 Hz. After downstream grain envelope
-    ///   windowing (-1 to -1.5 dB/oct) the measured slope lands at ~-2 dB/oct.
     #[inline]
     pub fn process(&mut self, white: f64, slope: f64) -> f64 {
         let pink = self.pink.process(white);
 
-        // Brown: single-pole leaky integrator (~23 Hz cutoff at 48 kHz)
-        // Accumulating form (no (1-a) input scaling) for usable amplitude
+        // Brown: single-pole leaky integrator (fc ~21 Hz at 44.1kHz).
+        // Pure output gives PSD ∝ 1/f² (beta=2, -6 dB/oct).
         self.z1 = 0.997 * self.z1 + white;
-        // Mix: ~35% brown (normalized) + ~65% white → ~-0.8 dB/oct raw
-        let brown = 0.014 * self.z1 + 0.65 * white;
+        let brown = self.z1 * 0.04;
 
         let s = clamp(slope, -2.0, 0.5);
 
@@ -656,8 +645,8 @@ mod tests {
     #[test]
     fn test_grain_kind_choice() {
         assert_eq!(GrainKind::choose(0.0, 0.5), GrainKind::Burst);
-        assert_eq!(GrainKind::choose(1.0, 0.1), GrainKind::VhsDrop);
-        assert_eq!(GrainKind::choose(1.0, 0.4), GrainKind::Stutter);
+        assert_eq!(GrainKind::choose(1.0, 0.1), GrainKind::Stutter);
+        assert_eq!(GrainKind::choose(1.0, 0.5), GrainKind::Aliaser);
         assert_eq!(GrainKind::choose(1.0, 0.8), GrainKind::Aliaser);
     }
 

@@ -159,7 +159,7 @@ class TestPresets:
         params = preset.to_params()
         
         assert params.rate == 20.0
-        assert params.glitch_mix == 0.9
+        assert params.glitch_mix == 0.0  # glitch mix default
     
     def test_from_params(self):
         params = Params()

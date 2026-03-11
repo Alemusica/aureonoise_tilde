@@ -173,8 +173,6 @@ def _emdr_params() -> Params:
     p.glitch_mix = 0.0
     p.srcrush_amt = 0.0
     p.bitcrush_amt = 0.0
-    p.vhs_wow = 0.1
-    p.vhs_flutter = 0.1
     p.burst = False
     p.temperature = 0.3
     p.seed = 42
@@ -220,8 +218,6 @@ def _sleep_params() -> Params:
     p.glitch_mix = 0.0
     p.srcrush_amt = 0.0
     p.bitcrush_amt = 0.0
-    p.vhs_wow = 0.05
-    p.vhs_flutter = 0.05
     p.burst = False
     p.temperature = 0.15
     p.seed = 42
