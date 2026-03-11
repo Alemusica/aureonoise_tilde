@@ -266,6 +266,19 @@ pub struct Params {
     #[pyo3(get, set)]
     pub coherence_spatial: bool,
 
+    // Phi lattice (universal phi ratio oracle)
+    #[pyo3(get, set)]
+    pub phi_lattice_on: bool,
+    /// Per-grain personality amount (0=all same, 1=max variation)
+    #[pyo3(get, set)]
+    pub phi_personality: f64,
+    /// Timing snap to phi grid (0=free, 1=strict)
+    #[pyo3(get, set)]
+    pub phi_timing_strength: f64,
+    /// Spatial snap to phi lattice (0=free, 1=strict)
+    #[pyo3(get, set)]
+    pub phi_spatial_strength: f64,
+
     // System
     #[pyo3(get, set)]
     pub seed: u64,
@@ -403,6 +416,12 @@ impl Default for Params {
             // Coherence spatial morphing
             coherence_spatial: false,
 
+            // Phi lattice
+            phi_lattice_on: false,
+            phi_personality: 0.5,
+            phi_timing_strength: 0.5,
+            phi_spatial_strength: 0.5,
+
             // System
             seed: 20251010,
         }
@@ -458,6 +477,9 @@ pub struct Engine {
 
     // Stochastic resonance (Collins 1995)
     stoch_res: StochasticResonance,
+
+    // Phi lattice (universal phi ratio oracle)
+    phi_lattice: phi_lattice::PhiLattice,
 
     // Hardware-seeded entropy (phit)
     phit_rng: phit::PhitRng,
@@ -584,6 +606,7 @@ impl Engine {
             room: RoomReverb::new(sr),
             polyrhythm: PolyrhythmClock::new(),
             stoch_res: StochasticResonance::new(),
+            phi_lattice: phi_lattice::PhiLattice::new(),
             phit_rng: phit::PhitRng::new(),
             ou_pan: OrnsteinUhlenbeck::new(0.60, 0.0),
             ou_itd: OrnsteinUhlenbeck::new(0.40, 0.0),
@@ -742,6 +765,7 @@ impl Engine {
         self.room.reset();
         self.polyrhythm.reset();
         self.stoch_res.reset();
+        self.phi_lattice = phi_lattice::PhiLattice::new();
         self.ou_macro.reset();
         self.lat_phase = 0.0;
         self.lat_last_v = 0.0;
@@ -909,6 +933,11 @@ impl Engine {
             self.ou_macro.step(block_dt, 0.0, &mut self.rng);
         }
 
+        // Phi lattice OU drift (slow evolution of ratio preferences)
+        if self.params.phi_lattice_on {
+            self.phi_lattice.step_drift(block_dt);
+        }
+
         // Weighted-average pan from previous block's grains (for DVF near-field)
         let avg_pan = if self.block_pan_weight > 1e-9 {
             clamp(self.block_pan_sum / self.block_pan_weight, -1.0, 1.0)
@@ -1055,7 +1084,22 @@ impl Engine {
                 let itd = grain.itd;
                 let base = (wi + RING_SIZE - grain.ring_offset) & RING_MASK;
                 let (mut s_l, mut s_r) = self.ring.read_stereo_itd(base, itd);
-                
+
+                // Per-grain spectral tilt (lightweight single-pole coloring)
+                let tilt_diff = grain.grain_tilt - self.params.noise_slope;
+                if tilt_diff.abs() > 0.1 {
+                    let alpha = 0.997_f64.powf(1.0 + tilt_diff.abs());
+                    grain.tilt_z = alpha * grain.tilt_z + (1.0 - alpha) * s_l;
+                    let tilt_s = if tilt_diff < 0.0 {
+                        grain.tilt_z
+                    } else {
+                        s_l + 0.3 * (s_l - grain.tilt_z)
+                    };
+                    let ratio = if s_l.abs() > 1e-12 { tilt_s / s_l } else { 1.0 };
+                    s_l = tilt_s;
+                    s_r *= ratio;
+                }
+
                 // Apply pan and ILD
                 s_l *= grain.pan_l * grain.gain_l;
                 s_r *= grain.pan_r * grain.gain_r;
@@ -1520,17 +1564,46 @@ impl Engine {
         grain.sr_hold_cnt = grain.sr_hold_n;
         grain.q_levels = (1 << (map_bits(self.params.bitcrush_amt) - 1)) - 1;
         
-        // Envelope
+        // Envelope — phi lattice personality or global params
+        let (env_a, env_d, env_s, env_r) = if self.params.phi_lattice_on && self.params.phi_personality > 1e-6 {
+            let (la, ld, ls, lr) = self.phi_lattice.grain_adsr();
+            let p = clamp01(self.params.phi_personality);
+            (
+                (1.0 - p) * self.params.env_attack + p * la,
+                (1.0 - p) * self.params.env_decay + p * ld,
+                (1.0 - p) * self.params.env_sustain + p * ls,
+                (1.0 - p) * self.params.env_release + p * lr,
+            )
+        } else {
+            (self.params.env_attack, self.params.env_decay, self.params.env_sustain, self.params.env_release)
+        };
+
+        // Store personality in grain
+        grain.grain_attack = env_a;
+        grain.grain_decay = env_d;
+        grain.grain_sustain = env_s;
+        grain.grain_release = env_r;
+
+        // Bilateral safety: clamp attack so onset < 5ms for CC stimulation
+        let mut final_env_a = env_a;
+        let dur_ms = len * 1000.0 / self.sr;
+        if self.params.bilateral_on && final_env_a * dur_ms > 5.0 {
+            final_env_a = 5.0 / dur_ms;
+            grain.grain_attack = final_env_a;
+        }
+
         grain.env = self.envelope.make_shape(
-            self.params.env_attack,
-            self.params.env_decay,
-            self.params.env_sustain,
-            self.params.env_release,
-            gap_samples,
-            len,
-            pan.abs(),
+            final_env_a, env_d, env_s, env_r,
+            gap_samples, len, pan.abs(),
         );
-        
+
+        // Per-grain spectral tilt from phi lattice
+        if self.params.phi_lattice_on && self.params.phi_personality > 1e-6 {
+            grain.grain_tilt = self.phi_lattice.grain_spectral_tilt(self.params.noise_slope);
+        } else {
+            grain.grain_tilt = self.params.noise_slope;
+        }
+
         // Activate grain
         grain.on = true;
         grain.age = 0;
