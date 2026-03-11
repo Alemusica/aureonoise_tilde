@@ -582,6 +582,18 @@ impl NoiseGen {
 }
 
 impl NoiseGen {
+    /// Velvet noise with PhitRng — hardware entropy for unpredictable impulse timing
+    pub fn process_velvet_phit(&self, rng: &mut crate::phit::PhitRng, sr: f64) -> f64 {
+        let sr = if sr > 0.0 { sr } else { DEFAULT_SR };
+        let prob = self.velvet_density / sr;
+        let u = rng.next_f64();
+        if u < prob {
+            if rng.next_f64() < 0.5 { 1.0 } else { -1.0 }
+        } else {
+            0.0
+        }
+    }
+
     /// Push Aureo parameters into the aureo state before processing
     fn configure_aureo(&mut self, sr: f64) {
         self.aureo.planck_decay = clamp01(self.aureo_decay);

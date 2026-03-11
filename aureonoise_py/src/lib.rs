@@ -1046,6 +1046,10 @@ impl Engine {
                 // Continuous spectral tilt replaces discrete noise_color
                 let white = self.rng.uni_pm1();
                 self.spectral_tilt.process(white, self.params.noise_slope)
+            } else if self.params.noise_mode == 5 && self.params.phi_lattice_on {
+                // Velvet with triphase entropy
+                let impulse = self.noise_gen.process_velvet_phit(&mut self.phit_rng, self.sr);
+                self.spectral_tilt.process(impulse, self.params.noise_slope)
             } else {
                 self.noise_gen.next_sample(&mut self.rng, self.sr)
             };
@@ -1330,9 +1334,9 @@ impl Engine {
         let u1 = self.w_phi.next();
         let u2 = self.w_s2.next();
         let u3 = self.w_pl.next();
-        let u4 = self.rng.uni01();
-        let u5 = self.rng.uni01();
-        let u6 = self.rng.uni01();
+        let u4 = if self.params.phi_lattice_on { self.phit_rng.next_f64() } else { self.rng.uni01() };
+        let u5 = if self.params.phi_lattice_on { self.phit_rng.next_f64() } else { self.rng.uni01() };
+        let u6 = if self.params.phi_lattice_on { self.phit_rng.next_f64() } else { self.rng.uni01() };
         
         // Hemisphere coupling
         let gap_samples = self.gap_elapsed as f64;
@@ -1370,7 +1374,14 @@ impl Engine {
         let amp_lat = map_phi_range(INV_PHI, PHI, lat_u);
         grain.amp = AMP_NORM * amp_shape * amp_lat * oua;
         
-        let mut pan = 2.0 * u3 - 1.0;
+        let mut pan = if self.params.phi_lattice_on && self.params.phi_spatial_strength > 1e-6 {
+            let phi_pan = self.phi_lattice.spatial_position();
+            let free_pan = 2.0 * u3 - 1.0;
+            let s = clamp01(self.params.phi_spatial_strength);
+            (1.0 - s) * free_pan + s * phi_pan
+        } else {
+            2.0 * u3 - 1.0
+        };
         if self.params.lattice {
             pan += 0.25 * (2.0 * lat_u - 1.0) + 0.35 * oup;
         }
@@ -1378,9 +1389,19 @@ impl Engine {
         grain.pan = pan;
         
         // Duration
-        let base = clamp(self.params.baselen_ms, MIN_BASE_LENGTH_MS, 2000.0) * 0.001 * self.sr;
-        let kexp = (2.0 * u1 - 1.0) * clamp01(self.params.len_phi);
-        let len = clamp(base * PHI.powf(kexp), MIN_GRAIN_SAMPLES, self.sr * 4.0);
+        let base_ms = clamp(self.params.baselen_ms, MIN_BASE_LENGTH_MS, 2000.0);
+        let len = if self.params.phi_lattice_on && self.params.phi_timing_strength > 1e-6 {
+            let phi_dur_ms = self.phi_lattice.grain_duration(base_ms);
+            let free_kexp = (2.0 * u1 - 1.0) * clamp01(self.params.len_phi);
+            let free_dur_ms = base_ms * PHI.powf(free_kexp);
+            let t = clamp01(self.params.phi_timing_strength);
+            let dur_ms = (1.0 - t) * free_dur_ms + t * phi_dur_ms;
+            clamp(dur_ms * 0.001 * self.sr, MIN_GRAIN_SAMPLES, self.sr * 4.0)
+        } else {
+            let base = base_ms * 0.001 * self.sr;
+            let kexp = (2.0 * u1 - 1.0) * clamp01(self.params.len_phi);
+            clamp(base * PHI.powf(kexp), MIN_GRAIN_SAMPLES, self.sr * 4.0)
+        };
         grain.dur = len as u32;
 
         // --- Dialogue evaluation FIRST (interhemispheric coherence) ---
@@ -1413,7 +1434,7 @@ impl Engine {
         // --- Burst position modulation AFTER dialogue ---
         // Burst's center_pull is spatial clustering, independent of phi-ratio detection.
         if self.burst_engine.enabled {
-            let dur_norm = clamp01(len / (base * PHI));
+            let dur_norm = clamp01(len / (base_ms * 0.001 * self.sr * PHI));
             let expected_gap = if self.params.rate > 1.0e-6 {
                 self.sr / self.params.rate
             } else {
@@ -1648,27 +1669,36 @@ impl Engine {
         if rate <= 1e-6 {
             return (self.sr * 0.25).max(1.0) as i32;
         }
-        
-        let t = self.sample_counter as f64 / self.sr;
-        let mut lambda = rate * (1.0 + 0.2 * (TWO_PI * (t * INV_PHI)).sin());
-        lambda = lambda.max(1e-3);
-        
-        if self.params.burst {
-            lambda += 0.3 * self.hawkes.lambda;
-        }
-        
-        let u = self.rng.uni01().max(1.0e-12);
-        let mut gap_sec = -u.ln() / lambda;
-        
-        let base_rate = clamp(self.params.rate, 0.0, MAX_EVENT_RATE_HZ);
-        let cap_sec = if base_rate > 1e-6 {
-            30.0_f64.min(4.0 / base_rate)
+
+        let base_interval = self.sr / rate;
+
+        if self.params.phi_lattice_on && self.params.phi_timing_strength > 1e-6 {
+            let phi_interval = self.phi_lattice.onset_interval(base_interval);
+            let hawkes_scale = if self.params.burst {
+                1.0 / (1.0 + 0.3 * self.hawkes.lambda / rate.max(1e-3))
+            } else {
+                1.0
+            };
+            let t = clamp01(self.params.phi_timing_strength);
+            let u = self.rng.uni01().max(1.0e-12);
+            let free_gap = (-u.ln() / rate.max(1e-3)) * self.sr;
+            let gap = (1.0 - t) * free_gap + t * phi_interval * hawkes_scale;
+            let base_rate = clamp(self.params.rate, 0.0, MAX_EVENT_RATE_HZ);
+            let cap = if base_rate > 1e-6 { (30.0_f64.min(4.0 / base_rate)) * self.sr } else { 0.25 * self.sr };
+            gap.min(cap).round().max(1.0) as i32
         } else {
-            0.25
-        };
-        gap_sec = gap_sec.min(cap_sec);
-        
-        (gap_sec * self.sr).round().max(1.0) as i32
+            // Original exponential inter-arrival
+            let t = self.sample_counter as f64 / self.sr;
+            let mut lambda = rate * (1.0 + 0.2 * (TWO_PI * (t * INV_PHI)).sin());
+            lambda = lambda.max(1e-3);
+            if self.params.burst { lambda += 0.3 * self.hawkes.lambda; }
+            let u = self.rng.uni01().max(1.0e-12);
+            let mut gap_sec = -u.ln() / lambda;
+            let base_rate = clamp(self.params.rate, 0.0, MAX_EVENT_RATE_HZ);
+            let cap_sec = if base_rate > 1e-6 { 30.0_f64.min(4.0 / base_rate) } else { 0.25 };
+            gap_sec = gap_sec.min(cap_sec);
+            (gap_sec * self.sr).round().max(1.0) as i32
+        }
     }
 }
 
