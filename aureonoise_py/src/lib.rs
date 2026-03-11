@@ -26,6 +26,7 @@ mod tinnitus;
 mod dvf;
 mod room;
 mod polyrhythm;
+mod phi_lattice;
 
 pub use constants::*;
 pub use rng::Rng;
@@ -49,6 +50,7 @@ pub use noise::SpectralTilt;
 pub use dvf::DvfFilter;
 pub use room::RoomReverb;
 pub use polyrhythm::PolyrhythmClock;
+pub use phi_lattice::PhiLattice;
 pub use sr::StochasticResonance;
 
 /// aureonoise DSP engine parameters
