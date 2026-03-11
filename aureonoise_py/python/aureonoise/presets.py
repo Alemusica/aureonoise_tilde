@@ -335,7 +335,7 @@ class PresetBank:
             "feedback_on": True, "temp_ramp_sec": 20.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
-            "noise_mode": 5, "noise_slope": -1.0,  # velvet + pink tilt (PhitRng entropy)
+            "noise_slope": -1.0,  # pink spectral tilt (PhitRng entropy via phi lattice for timing/spatial)
             "spat_pinna": 0.25, "spat_distance": 0.3,  # subtle phi spatial for externalization
             "phi_lattice_on": True, "phi_personality": 0.15,
             "phi_timing_strength": 0.3, "phi_spatial_strength": 0.7,
@@ -420,7 +420,7 @@ class PresetBank:
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
-            "noise_mode": 5, "noise_slope": -1.0,  # velvet + pink tilt (PhitRng entropy)
+            "noise_slope": -1.0,  # pink spectral tilt (PhitRng entropy via phi lattice for timing/spatial)
             "phi_lattice_on": True, "phi_personality": 0.3,
             "phi_timing_strength": 0.25, "phi_spatial_strength": 0.4,
         })
@@ -444,7 +444,7 @@ class PresetBank:
             "modal_on": True, "modal_preset": 1, "modal_mix": 0.2,
             "modal_decay": 0.5, "modal_contralateral": 0.5,
             "polyrhythm_on": False, "coherence_spatial": False,
-            "noise_mode": 5, "noise_slope": -1.0,  # velvet + pink tilt (PhitRng entropy)
+            "noise_slope": -1.0,  # pink spectral tilt (PhitRng entropy via phi lattice for timing/spatial)
             "spat_pinna": 0.2, "spat_distance": 0.25,  # subtle phi spatial + contralateral mirror
             "phi_lattice_on": True, "phi_personality": 0.15,
             "phi_timing_strength": 0.3, "phi_spatial_strength": 0.7,
@@ -577,7 +577,7 @@ class PresetBank:
             "feedback_on": True, "temp_ramp_sec": 30.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
-            "noise_mode": 5, "noise_slope": -1.0,  # velvet + pink tilt (PhitRng entropy)
+            "noise_slope": -1.0,  # pink spectral tilt (PhitRng entropy via phi lattice for timing/spatial)
             "spat_pinna": 0.2, "spat_distance": 0.2,  # gentle phi spatial
             "phi_lattice_on": True, "phi_personality": 0.15,
             "phi_timing_strength": 0.3, "phi_spatial_strength": 0.7,
@@ -604,7 +604,7 @@ class PresetBank:
             "coherence_spatial": True, "room_mix": 0.15,
             "polyrhythm_on": True, "polyrhythm_p": 5, "polyrhythm_q": 3,
             "polyrhythm_rate": 1.0, "polyrhythm_amount": 0.3,
-            "noise_mode": 5, "noise_slope": -1.0,  # velvet + pink tilt (PhitRng entropy)
+            "noise_slope": -1.0,  # pink spectral tilt (PhitRng entropy via phi lattice for timing/spatial)
             "spat_pinna": 0.3, "spat_distance": 0.35,  # full phi spatial pipeline
             "phi_lattice_on": True, "phi_personality": 0.15,
             "phi_timing_strength": 0.3, "phi_spatial_strength": 0.7,
@@ -647,7 +647,7 @@ class PresetBank:
             "phi_pan": False, "bilateral_on": True,
             "bilateral_rate": 0.5, "bilateral_amount": 0.5,
             "bilateral_nesting": False,
-            "noise_mode": 5, "noise_slope": -1.0,  # velvet + pink tilt (PhitRng entropy)
+            "noise_slope": -1.0,  # pink spectral tilt (PhitRng entropy via phi lattice for timing/spatial)
             "binaural_on": True, "binaural_carrier_hz": 220.0,
             "binaural_beat_hz": 7.83, "binaural_level": 0.06,
             "isochronic_on": False,
