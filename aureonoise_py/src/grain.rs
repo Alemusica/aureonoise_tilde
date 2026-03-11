@@ -76,6 +76,20 @@ pub struct Grain {
     pub dist_lp_z_l: f64,
     /// Distance LP filter state R
     pub dist_lp_z_r: f64,
+
+    // Phi lattice grain personality
+    /// Per-grain attack proportion [0, 1] from PhiLattice
+    pub grain_attack: f64,
+    /// Per-grain decay proportion [0, 1] from PhiLattice
+    pub grain_decay: f64,
+    /// Per-grain sustain level [0, 1] from PhiLattice
+    pub grain_sustain: f64,
+    /// Per-grain release proportion [0, 1] from PhiLattice
+    pub grain_release: f64,
+    /// Per-grain spectral tilt [-2, 0.5] from PhiLattice
+    pub grain_tilt: f64,
+    /// Tilt filter state (single-pole LP for per-grain coloring)
+    pub tilt_z: f64,
 }
 
 #[pymethods]
@@ -139,6 +153,12 @@ impl Default for Grain {
             dist_lp_a: 0.0,
             dist_lp_z_l: 0.0,
             dist_lp_z_r: 0.0,
+            grain_attack: 0.18,
+            grain_decay: 0.28,
+            grain_sustain: 0.55,
+            grain_release: 0.30,
+            grain_tilt: 0.0,
+            tilt_z: 0.0,
         }
     }
 }
