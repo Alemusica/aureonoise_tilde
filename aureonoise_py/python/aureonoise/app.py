@@ -180,29 +180,39 @@ class AureonoiseApp:
             dpg.add_separator()
             dpg.add_spacer(height=10)
 
-            # Preset grid
-            dpg.add_text("Evidence-Based Presets", color=COLORS["section"])
-            dpg.add_text(
-                "Each preset configures noise, spatial, dialogue and bilateral "
-                "parameters for a specific therapeutic context.",
-                color=COLORS["text_dim"], wrap=520)
-            dpg.add_spacer(height=10)
+            # Preset grid — grouped by protocol origin
+            dpg.add_text("Therapeutic Presets", color=COLORS["section"])
+            dpg.add_spacer(height=8)
 
-            # 5x3 button grid
-            row_items = list(FACTORY.items())
-            for row_start in range(0, len(row_items), 3):
-                row_slice = row_items[row_start:row_start + 3]
-                with dpg.group(horizontal=True):
-                    for name, (_key, _rgba) in row_slice:
-                        btn = dpg.add_button(
-                            label=f"  {name}  ",
-                            callback=self._make_preset_callback(name),
-                            height=40,
-                            width=170,
-                        )
-                        dpg.bind_item_theme(btn, self._btn_themes[name])
-                        dpg.add_spacer(width=5)
-                dpg.add_spacer(height=5)
+            _PRESET_GROUPS = [
+                ("EMDR / Bilateral", "Shapiro 1989, Rousseau 2020, BAC (Russia)",
+                 ["EMDR Bilateral", "Hemispheric Bridge", "CC Gentle", "CC Maximum"]),
+                ("Entrainment", "MIT GENUS 40Hz, Jirakittayakorn, Solca, Slezin (Russia)",
+                 ["Gamma Focus", "Delta Reset 3Hz", "Sleep Delta Binaural",
+                  "Theta Meditation", "Alpha Relax", "Schumann 7.83Hz"]),
+                ("Noise Therapy", "1/f research, tinnitus notch, ASMR tingles",
+                 ["Sleep Pink", "Focus Brown", "Theta Drift",
+                  "Tinnitus Relief", "ASMR Intimate"]),
+            ]
+            for group_label, source, names in _PRESET_GROUPS:
+                dpg.add_text(group_label, color=COLORS["accent"])
+                dpg.add_text(source, color=COLORS["text_dim"])
+                dpg.add_spacer(height=4)
+                for row_start in range(0, len(names), 3):
+                    row_slice = names[row_start:row_start + 3]
+                    with dpg.group(horizontal=True):
+                        for name in row_slice:
+                            if name in self._btn_themes:
+                                btn = dpg.add_button(
+                                    label=f"  {name}  ",
+                                    callback=self._make_preset_callback(name),
+                                    height=36,
+                                    width=170,
+                                )
+                                dpg.bind_item_theme(btn, self._btn_themes[name])
+                                dpg.add_spacer(width=5)
+                    dpg.add_spacer(height=3)
+                dpg.add_spacer(height=6)
 
             dpg.add_separator()
             dpg.add_spacer(height=5)
@@ -269,10 +279,6 @@ class AureonoiseApp:
                 dpg.add_spacer(height=5)
                 dpg.add_text("Noise color controlled in Noise section", color=COLORS["text_dim"])
                 dpg.add_separator()
-                self._slider("vhs_wow", "VHS Wow", 0.0, 1.0, 0.35)
-                self._slider("vhs_flutter", "VHS Flutter", 0.0, 1.0, 0.25)
-                self._slider("glitch_mix", "Glitch Mix", 0.0, 1.0, 0.5)
-                dpg.add_separator()
                 self._slider("srcrush_amt", "Sample Rate Crush", 0.0, 1.0, 0.2)
                 self._slider("bitcrush_amt", "Bit Crush", 0.0, 1.0, 0.15)
 
@@ -307,7 +313,7 @@ class AureonoiseApp:
                 dpg.add_spacer(height=5)
                 self._slider("modal_mix", "Mix", 0.0, 1.0, 0.3)
                 self._slider("modal_decay", "Decay", 0.0, 1.0, 0.5)
-                self._slider("modal_mirror", "Mirror", 0.0, 1.0, 0.3)
+                self._slider("modal_mirror", "Resonance", 0.0, 1.0, 0.3)
                 self._slider("modal_feedback", "Feedback", 0.0, 1.0, 0.1)
                 dpg.add_spacer(height=8)
                 dpg.add_text("Contralateral Mirror", color=COLORS["section"])
@@ -510,6 +516,23 @@ class AureonoiseApp:
                 dpg.add_spacer(height=5)
                 self._slider("tinnitus_notch_hz", "Center Freq (Hz)", 0.0, 12000.0, 0.0)
                 self._slider("tinnitus_notch_q", "Q Factor", 1.0, 20.0, 6.0)
+
+            # ── Phi Lattice ───────────────────────────────────────
+            with dpg.collapsing_header(label="Phi Lattice", default_open=False):
+                dpg.add_spacer(height=5)
+                dpg.add_text("Phi-Ratio Organic Structure", color=COLORS["section"])
+                dpg.add_text(
+                    "Triphase entropy lattice: timing jitter, spatial modulation, "
+                    "grain personality — all driven by phi ratios.",
+                    color=COLORS["text_dim"], wrap=520)
+                dpg.add_spacer(height=5)
+                dpg.add_checkbox(
+                    label="Phi Lattice On", default_value=False, tag="cb_phi_lattice_on",
+                    callback=lambda s, a, u: self._set_param("phi_lattice_on", a))
+                dpg.add_spacer(height=5)
+                self._slider("phi_personality", "Personality", 0.0, 1.0, 0.5)
+                self._slider("phi_timing_strength", "Timing", 0.0, 1.0, 0.5)
+                self._slider("phi_spatial_strength", "Spatial", 0.0, 1.0, 0.5)
 
     def _build_monitor_tab(self):
         """Monitor tab: Analysis, System."""
@@ -947,6 +970,7 @@ class AureonoiseApp:
         _safe_set("cb_thermo", params.get("thermo", True))
         _safe_set("cb_lattice", params.get("lattice", True))
         _safe_set("cb_burst", params.get("burst", True))
+        _safe_set("cb_phi_lattice_on", params.get("phi_lattice_on", False))
 
         # Noise mode radio
         nm = params.get("noise_mode", 1)

@@ -484,6 +484,8 @@ EXPECTED_KEYS = {
     "polyrhythm_on", "polyrhythm_p", "polyrhythm_q",
     "polyrhythm_rate", "polyrhythm_amount",
     "room_mix", "coherence_spatial",
+    "phi_lattice_on", "phi_personality",
+    "phi_timing_strength", "phi_spatial_strength",
     "seed",
 }
 

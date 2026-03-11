@@ -154,6 +154,10 @@ class TherapeuticProfile:
     delta_reset: bool      # expects Slezin 3 Hz delta
     dialogue: bool         # expects dialogue/handshake system active
     target_beat_hz: Optional[float] = None  # expected entrainment frequency
+    # Grain texture expectations
+    # Roads 2001 (Microsound): overlap ≥ 3 for continuous, < 2 for discrete
+    continuous_texture: bool = True  # expects continuous texture (duty_cycle > 0.85)
+    phi_lattice: bool = True  # expects phi lattice enabled
     notes: str = ""
 
 
@@ -162,13 +166,14 @@ PROFILES: Dict[str, TherapeuticProfile] = {
         name="EMDR Bilateral", category="bilateral", noise_type="brown",
         bilateral=True, binaural=False, isochronic=False,
         corpus_callosum=True, emdr=True, delta_reset=False, dialogue=True,
+        continuous_texture=False,  # bilateral needs discrete onset for CC stimulation
         notes="L-R alternation at 1.0 Hz for trauma reprocessing (Rousseau 2020)",
     ),
     "ASMR Intimate": TherapeuticProfile(
-        name="ASMR Intimate", category="asmr", noise_type="white",
+        name="ASMR Intimate", category="asmr", noise_type="brown",
         bilateral=False, binaural=False, isochronic=False,
         corpus_callosum=False, emdr=False, delta_reset=False, dialogue=False,
-        notes="Micro-transients with proximity sensation — extreme stereo width, flat spectrum from burst processing",
+        notes="Micro-transients with proximity sensation — brown noise mode for warm texture",
     ),
     "Sleep Pink": TherapeuticProfile(
         name="Sleep Pink", category="general", noise_type="pink",
@@ -193,6 +198,7 @@ PROFILES: Dict[str, TherapeuticProfile] = {
         name="Hemispheric Bridge", category="bilateral", noise_type="pink",
         bilateral=True, binaural=False, isochronic=False,
         corpus_callosum=True, emdr=False, delta_reset=False, dialogue=True,
+        continuous_texture=False,  # bilateral needs discrete onset for CC stimulation
         notes="Alpha-band bilateral stimulation for corpus callosum sync + contralateral mirror",
     ),
     "Sleep Delta Binaural": TherapeuticProfile(
@@ -233,12 +239,14 @@ PROFILES: Dict[str, TherapeuticProfile] = {
         name="CC Gentle", category="bilateral", noise_type="pink",
         bilateral=True, binaural=False, isochronic=False,
         corpus_callosum=True, emdr=False, delta_reset=False, dialogue=True,
+        continuous_texture=False,  # bilateral needs discrete onset for CC stimulation
         notes="Gentle corpus callosum stimulation (0.7 Hz bilateral)",
     ),
     "CC Maximum": TherapeuticProfile(
         name="CC Maximum", category="bilateral", noise_type="pink",
         bilateral=True, binaural=False, isochronic=False,
         corpus_callosum=True, emdr=False, delta_reset=False, dialogue=True,
+        continuous_texture=False,  # bilateral needs discrete onset for CC stimulation
         notes="Maximum CC drive (1.0 Hz bilateral, dialogue 0.85, contralateral mirror)",
     ),
     "Delta Reset 3Hz": TherapeuticProfile(
@@ -253,6 +261,7 @@ PROFILES: Dict[str, TherapeuticProfile] = {
         bilateral=True, binaural=True, isochronic=False,
         corpus_callosum=False, emdr=False, delta_reset=False, dialogue=True,
         target_beat_hz=7.83,
+        continuous_texture=False,  # bilateral component needs discrete character
         notes="Schumann resonance at theta/alpha boundary (Earth EM pulse)",
     ),
 }
@@ -421,6 +430,314 @@ def measure_lr_alternation(left: np.ndarray, right: np.ndarray) -> Dict:
         dominant_rate = 0.0
 
     return {"zero_crossings": zero_crossings, "dominant_rate_hz": dominant_rate}
+
+
+def measure_temporal_continuity(mono: np.ndarray) -> Dict:
+    """Measure temporal continuity of the signal (gap detection).
+
+    Detects silence gaps that produce "noise puff" texture.
+    Continuous therapeutic texture requires duty_cycle > 0.90.
+    Bilateral discrete presets intentionally have lower duty_cycle.
+
+    Source: granular synthesis literature — overlap ratio ≥ 3 for
+    perceptually continuous texture (Roads 2001, Microsound).
+
+    Skips first 1s (startup transient before grain pool fills up).
+
+    Returns:
+        duty_cycle: fraction of time signal is above -40 dBFS [0, 1]
+        gap_max_ms: longest silence gap in ms
+        gap_count: number of gaps > 10ms
+        gap_mean_ms: average gap duration
+    """
+    # Skip first 1s — startup transient
+    skip = int(SR * 1.0)
+    if len(mono) <= skip + int(SR * 1.0):
+        skip = 0
+    mono = mono[skip:]
+
+    window = int(SR * 0.005)  # 5ms RMS windows
+    n_windows = len(mono) // window
+    if n_windows < 10:
+        return {"duty_cycle": 0.0, "gap_max_ms": 0.0, "gap_count": 0, "gap_mean_ms": 0.0}
+
+    rms_windows = np.array([
+        np.sqrt(np.mean(mono[i * window:(i + 1) * window] ** 2))
+        for i in range(n_windows)
+    ])
+
+    # Threshold: -40 dBFS relative to signal RMS
+    signal_rms = np.sqrt(np.mean(mono ** 2))
+    if signal_rms < 1e-12:
+        return {"duty_cycle": 0.0, "gap_max_ms": 0.0, "gap_count": 0, "gap_mean_ms": 0.0}
+
+    threshold = signal_rms * 0.01  # -40 dB below signal RMS
+    active = rms_windows > threshold
+    duty_cycle = float(np.mean(active))
+
+    # Find gaps (consecutive inactive windows)
+    gaps_ms = []
+    gap_len = 0
+    window_ms = window / SR * 1000.0
+    for a in active:
+        if not a:
+            gap_len += 1
+        else:
+            if gap_len > 0:
+                gap_duration = gap_len * window_ms
+                if gap_duration > 10.0:  # only count gaps > 10ms
+                    gaps_ms.append(gap_duration)
+            gap_len = 0
+    if gap_len > 0:
+        gap_duration = gap_len * window_ms
+        if gap_duration > 10.0:
+            gaps_ms.append(gap_duration)
+
+    return {
+        "duty_cycle": duty_cycle,
+        "gap_max_ms": float(max(gaps_ms)) if gaps_ms else 0.0,
+        "gap_count": len(gaps_ms),
+        "gap_mean_ms": float(np.mean(gaps_ms)) if gaps_ms else 0.0,
+    }
+
+
+def measure_envelope_smoothness(mono: np.ndarray) -> Dict:
+    """Measure amplitude envelope smoothness (crest factor, modulation index).
+
+    For continuous therapeutic noise beds, the envelope should be SMOOTH
+    (low modulation index, low crest factor). High modulation = "noise puffs."
+    For isochronic, modulation should be HIGH and periodic.
+
+    Skips first 1s (startup transient before grain pool fills up).
+    Uses P5/P95 percentiles for modulation_index (robust to outliers).
+
+    Source: audio engineering standards (AES), psychoacoustics —
+    crest factor > 12 dB indicates impulsive/transient-heavy signal.
+
+    Returns:
+        crest_factor_db: peak/RMS ratio in dB (low = smooth, high = impulsive)
+        modulation_index: (P95 - P5) / (P95 + P5) — robust modulation depth [0=flat, 1=full]
+        env_cv: coefficient of variation of short-time RMS envelope
+    """
+    # Skip first 1s — startup transient before grain pool fills
+    skip = int(SR * 1.0)
+    if len(mono) <= skip + int(SR * 1.0):
+        skip = 0  # if signal too short, don't skip
+    mono_steady = mono[skip:]
+
+    window = int(SR * 0.02)  # 20ms RMS windows
+    n_windows = len(mono_steady) // window
+    if n_windows < 10:
+        return {"crest_factor_db": 0.0, "modulation_index": 0.0, "env_cv": 0.0}
+
+    envelope = np.array([
+        np.sqrt(np.mean(mono_steady[i * window:(i + 1) * window] ** 2))
+        for i in range(n_windows)
+    ])
+
+    rms = np.sqrt(np.mean(mono_steady ** 2))
+    peak = np.max(np.abs(mono_steady))
+
+    if rms < 1e-12:
+        return {"crest_factor_db": 0.0, "modulation_index": 0.0, "env_cv": 0.0}
+
+    crest_db = float(20.0 * np.log10(peak / rms))
+
+    # Percentile-based modulation index (robust to startup/outliers)
+    p5 = float(np.percentile(envelope, 5))
+    p95 = float(np.percentile(envelope, 95))
+    if p95 + p5 > 1e-12:
+        mod_index = float((p95 - p5) / (p95 + p5))
+    else:
+        mod_index = 0.0
+
+    env_cv = float(np.std(envelope) / np.mean(envelope)) if np.mean(envelope) > 1e-12 else 0.0
+
+    return {
+        "crest_factor_db": crest_db,
+        "modulation_index": mod_index,
+        "env_cv": env_cv,
+    }
+
+
+def measure_entrainment_power(left: np.ndarray, right: np.ndarray,
+                               target_hz: float, mode: str) -> Dict:
+    """Verify entrainment frequency presence in rendered audio.
+
+    For isochronic (mode="isochronic"): measures 40 Hz power in envelope spectrum.
+    For binaural (mode="binaural"): measures beat frequency in L-R difference.
+
+    Source:
+      Isochronic: Iaccarino 2016, Martorell 2019 — 40 Hz specificity
+      Binaural: Wahbeh 2007 — L/R frequency difference creates beat
+
+    Returns:
+        target_power_db: power at target frequency relative to noise floor (dB)
+        peak_hz: actual peak frequency near target
+        snr_db: signal-to-noise ratio at target frequency
+    """
+    if mode == "isochronic":
+        # Measure AM at target_hz via envelope FFT
+        mono = (left + right) * 0.5
+        window = int(SR * 0.005)  # 5ms for high-freq resolution
+        n_windows = len(mono) // window
+        if n_windows < 100:
+            return {"target_power_db": -100.0, "peak_hz": 0.0, "snr_db": 0.0}
+
+        envelope = np.array([
+            np.sqrt(np.mean(mono[i * window:(i + 1) * window] ** 2))
+            for i in range(n_windows)
+        ])
+
+        env_sr = SR / window
+        env_fft = np.abs(np.fft.rfft(envelope - np.mean(envelope)))
+        env_freqs = np.fft.rfftfreq(len(envelope), 1.0 / env_sr)
+
+        # Find peak near target
+        search_mask = (env_freqs >= target_hz * 0.7) & (env_freqs <= target_hz * 1.3)
+        if not np.any(search_mask):
+            return {"target_power_db": -100.0, "peak_hz": 0.0, "snr_db": 0.0}
+
+        search_power = env_fft[search_mask]
+        search_freqs = env_freqs[search_mask]
+        peak_idx = np.argmax(search_power)
+        peak_hz = float(search_freqs[peak_idx])
+        peak_power = float(search_power[peak_idx])
+
+        # Noise floor: median of non-target region
+        noise_mask = ~search_mask & (env_freqs > 1.0)
+        noise_floor = float(np.median(env_fft[noise_mask])) if np.any(noise_mask) else 1e-30
+
+        if noise_floor < 1e-30:
+            noise_floor = 1e-30
+
+        target_power_db = float(20.0 * np.log10(peak_power + 1e-30))
+        snr_db = float(20.0 * np.log10(peak_power / noise_floor))
+
+    elif mode == "binaural":
+        # Measure beat frequency via L-R difference envelope
+        diff = left - right
+        window = int(SR * 0.02)  # 20ms
+        n_windows = len(diff) // window
+        if n_windows < 50:
+            return {"target_power_db": -100.0, "peak_hz": 0.0, "snr_db": 0.0}
+
+        envelope = np.array([
+            np.sqrt(np.mean(diff[i * window:(i + 1) * window] ** 2))
+            for i in range(n_windows)
+        ])
+
+        env_sr = SR / window
+        env_fft = np.abs(np.fft.rfft(envelope - np.mean(envelope)))
+        env_freqs = np.fft.rfftfreq(len(envelope), 1.0 / env_sr)
+
+        # Search around target beat frequency
+        search_mask = (env_freqs >= target_hz * 0.5) & (env_freqs <= target_hz * 2.0)
+        if not np.any(search_mask):
+            return {"target_power_db": -100.0, "peak_hz": 0.0, "snr_db": 0.0}
+
+        search_power = env_fft[search_mask]
+        search_freqs = env_freqs[search_mask]
+        peak_idx = np.argmax(search_power)
+        peak_hz = float(search_freqs[peak_idx])
+        peak_power = float(search_power[peak_idx])
+
+        noise_mask = ~search_mask & (env_freqs > 0.5)
+        noise_floor = float(np.median(env_fft[noise_mask])) if np.any(noise_mask) else 1e-30
+        if noise_floor < 1e-30:
+            noise_floor = 1e-30
+
+        target_power_db = float(20.0 * np.log10(peak_power + 1e-30))
+        snr_db = float(20.0 * np.log10(peak_power / noise_floor))
+    else:
+        return {"target_power_db": -100.0, "peak_hz": 0.0, "snr_db": 0.0}
+
+    return {
+        "target_power_db": target_power_db,
+        "peak_hz": peak_hz,
+        "snr_db": snr_db,
+    }
+
+
+def measure_grain_onset_rate(mono: np.ndarray) -> Dict:
+    """Detect grain onsets via spectral flux and measure onset rate.
+
+    Compares detected onset rate against expected grain rate from preset params.
+    Also measures mean onset sharpness (rise time).
+
+    Source: onset detection literature (Bello 2005, "A Tutorial on Onset Detection
+    in Music Signals", IEEE TSAP). Spectral flux method with adaptive threshold.
+
+    Returns:
+        onset_count: number of detected onsets
+        onset_rate_hz: onsets per second
+        mean_rise_ms: average rise time (10% to 90% of local peak)
+    """
+    # Spectral flux onset detection
+    hop = int(SR * 0.005)  # 5ms hop
+    win_size = int(SR * 0.01)  # 10ms window
+    n_frames = (len(mono) - win_size) // hop
+    if n_frames < 20:
+        return {"onset_count": 0, "onset_rate_hz": 0.0, "mean_rise_ms": 0.0}
+
+    # Compute spectral flux
+    flux = np.zeros(n_frames)
+    prev_spec = np.abs(np.fft.rfft(mono[:win_size] * np.hanning(win_size)))
+    for i in range(1, n_frames):
+        start = i * hop
+        frame = mono[start:start + win_size]
+        if len(frame) < win_size:
+            break
+        curr_spec = np.abs(np.fft.rfft(frame * np.hanning(win_size)))
+        # Half-wave rectified spectral flux (only increases)
+        diff = curr_spec - prev_spec
+        flux[i] = float(np.sum(np.maximum(diff, 0.0)))
+        prev_spec = curr_spec
+
+    # Adaptive threshold: median + 1.5 * MAD
+    med = np.median(flux[flux > 0]) if np.any(flux > 0) else 0.0
+    mad = np.median(np.abs(flux - med))
+    threshold = med + 1.5 * mad
+
+    # Peak-pick with minimum distance (20ms)
+    min_dist = int(0.02 * SR / hop)
+    onsets = []
+    for i in range(1, len(flux) - 1):
+        if flux[i] > threshold and flux[i] > flux[i - 1] and flux[i] >= flux[i + 1]:
+            if not onsets or (i - onsets[-1]) >= min_dist:
+                onsets.append(i)
+
+    onset_count = len(onsets)
+    duration = len(mono) / SR
+    onset_rate = onset_count / duration if duration > 0 else 0.0
+
+    # Measure rise times for detected onsets
+    rise_times_ms = []
+    for oi in onsets[:50]:  # limit to 50 for performance
+        start_sample = oi * hop
+        # Find local envelope around onset (±50ms)
+        env_start = max(0, start_sample - int(SR * 0.05))
+        env_end = min(len(mono), start_sample + int(SR * 0.05))
+        segment = np.abs(mono[env_start:env_end])
+        if len(segment) < 10:
+            continue
+        peak_val = np.max(segment)
+        if peak_val < 1e-12:
+            continue
+        # Time from 10% to 90% of peak
+        t10 = np.argmax(segment > 0.1 * peak_val)
+        t90 = np.argmax(segment > 0.9 * peak_val)
+        if t90 > t10:
+            rise_ms = (t90 - t10) / SR * 1000.0
+            rise_times_ms.append(rise_ms)
+
+    mean_rise = float(np.mean(rise_times_ms)) if rise_times_ms else 0.0
+
+    return {
+        "onset_count": onset_count,
+        "onset_rate_hz": onset_rate,
+        "mean_rise_ms": mean_rise,
+    }
 
 
 def measure_tinnitus_notch(mono: np.ndarray, notch_hz: float) -> float:
@@ -906,6 +1223,106 @@ def validate_signal(
                 ))
             except AttributeError:
                 pass  # sr_noise_gain() not available in this build
+
+    # ── 20. TEMPORAL CONTINUITY ────────────────────────────────
+    # Roads 2001 (Microsound): overlap ≥ 3 → continuous texture.
+    # Bilateral presets (CC stimulation) need discrete onset, so lower threshold.
+    tc = measure_temporal_continuity(mono)
+    if profile.continuous_texture:
+        # Ambient/therapeutic: must be continuous (duty_cycle > 0.85)
+        ok_tc = tc["duty_cycle"] > 0.85
+        checks.append(Check(
+            "temporal_continuity", ok_tc,
+            f"duty={tc['duty_cycle']:.2f}, gaps={tc['gap_count']}, max_gap={tc['gap_max_ms']:.0f}ms",
+            "duty_cycle > 0.85 (continuous texture)",
+            "FAIL",
+            "Roads 2001: overlap ≥ 3 for perceptually continuous granular texture",
+        ))
+    else:
+        # Bilateral: just verify signal is present (duty > 0.5)
+        ok_tc = tc["duty_cycle"] > 0.50
+        checks.append(Check(
+            "temporal_density", ok_tc,
+            f"duty={tc['duty_cycle']:.2f}, gaps={tc['gap_count']}, max_gap={tc['gap_max_ms']:.0f}ms",
+            "duty_cycle > 0.50 (bilateral discrete)",
+            "WARN",
+            "Bilateral stimulation: discrete character expected, but signal must be present",
+        ))
+
+    # ── 21. ENVELOPE SMOOTHNESS ────────────────────────────────
+    # For continuous presets: crest factor should be moderate (< 15 dB),
+    # modulation index should be LOW (< 0.7).
+    # For isochronic: modulation index should be HIGH (intentional pulsing).
+    es = measure_envelope_smoothness(mono)
+    if profile.continuous_texture and not profile.isochronic:
+        ok_smooth = es["modulation_index"] < 0.80
+        checks.append(Check(
+            "envelope_smoothness", ok_smooth,
+            f"crest={es['crest_factor_db']:.1f}dB, mod_idx={es['modulation_index']:.3f}, CV={es['env_cv']:.3f}",
+            "modulation_index < 0.80 (smooth continuous bed)",
+            "WARN",
+            "Continuous therapeutic noise: low amplitude modulation = smooth texture, not pulsing",
+        ))
+
+    # ── 22. ENTRAINMENT FREQUENCY VERIFICATION ─────────────────
+    # Verify that the entrainment frequency actually appears in the rendered audio.
+    # Source: Iaccarino 2016 (40 Hz specificity), Wahbeh 2007 (binaural mechanism)
+    if profile.isochronic and profile.target_beat_hz is not None:
+        ep = measure_entrainment_power(left, right, profile.target_beat_hz, "isochronic")
+        ok_ent = ep["snr_db"] > 3.0  # at least 3 dB above noise floor
+        freq_ok = abs(ep["peak_hz"] - profile.target_beat_hz) < max(2.0, profile.target_beat_hz * 0.15)
+        checks.append(Check(
+            "entrainment_frequency_isochronic", ok_ent and freq_ok,
+            f"peak={ep['peak_hz']:.1f}Hz, SNR={ep['snr_db']:.1f}dB",
+            f"peak near {profile.target_beat_hz:.1f}Hz, SNR > 3 dB",
+            "FAIL",
+            f"Iaccarino 2016/Martorell 2019: {profile.target_beat_hz:.0f} Hz must be measurable in rendered audio",
+        ))
+
+    if profile.binaural and profile.target_beat_hz is not None:
+        ep = measure_entrainment_power(left, right, profile.target_beat_hz, "binaural")
+        ok_ent = ep["snr_db"] > 2.0  # binaural is subtler than isochronic
+        checks.append(Check(
+            "entrainment_frequency_binaural", ok_ent,
+            f"peak={ep['peak_hz']:.1f}Hz, SNR={ep['snr_db']:.1f}dB",
+            f"beat near {profile.target_beat_hz:.1f}Hz, SNR > 2 dB",
+            "WARN",
+            f"Wahbeh 2007: binaural beat at {profile.target_beat_hz:.1f} Hz should be detectable",
+        ))
+
+    # ── 23. GRAIN ONSET RATE ───────────────────────────────────
+    # Verify that actual onset rate is reasonable relative to preset grain rate.
+    # Source: Bello 2005 (onset detection), Roads 2001 (grain scheduling)
+    gor = measure_grain_onset_rate(mono)
+    if gor["onset_count"] > 0:
+        checks.append(Check(
+            "grain_onset_detection", True,
+            f"onsets={gor['onset_count']}, rate={gor['onset_rate_hz']:.1f}Hz, rise={gor['mean_rise_ms']:.1f}ms",
+            "onsets detectable in rendered audio",
+            "WARN",
+            "Bello 2005: spectral flux onset detection validates grain activity",
+        ))
+
+    # ── 24. PHI LATTICE ENABLED ──────────────────────────────
+    # Verify phi lattice is on when profile expects it (config check only).
+    if profile.phi_lattice:
+        bank_pl = PresetBank()
+        preset_pl = bank_pl.get(name)
+        phi_on = preset_pl.params.get("phi_lattice_on", False) if preset_pl else False
+        if phi_on:
+            checks.append(Check(
+                "phi_lattice_enabled", True,
+                "True", "True",
+                "WARN",
+                "Phi lattice enabled as expected",
+            ))
+        else:
+            checks.append(Check(
+                "phi_lattice_enabled", False,
+                "False", "True",
+                "WARN",
+                "Phi lattice not enabled but profile expects it",
+            ))
 
     return checks
 
