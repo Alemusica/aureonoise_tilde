@@ -336,8 +336,8 @@ class PresetBank:
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
             "spat_pinna": 0.25, "spat_distance": 0.3,  # subtle phi spatial for externalization
-            "phi_lattice_on": True, "phi_personality": 0.3,
-            "phi_timing_strength": 0.7, "phi_spatial_strength": 0.8,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.3, "phi_spatial_strength": 0.7,
         })
 
         _preset("ASMR Intimate",
@@ -360,8 +360,8 @@ class PresetBank:
             "polyrhythm_on": False, "coherence_spatial": False,
             "envelope_shape": 1,  # hann for smooth overlapping tingles
             "spat_pinna": 0.4, "spat_distance": 0.5,  # proximity: strong pinna + distance
-            "phi_lattice_on": True, "phi_personality": 0.7,
-            "phi_timing_strength": 0.5, "phi_spatial_strength": 0.5,
+            "phi_lattice_on": True, "phi_personality": 0.3,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.4,
         })
 
         _preset("Sleep Pink",
@@ -380,8 +380,8 @@ class PresetBank:
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.7,
-            "phi_timing_strength": 0.5, "phi_spatial_strength": 0.5,
+            "phi_lattice_on": True, "phi_personality": 0.3,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.4,
         })
 
         _preset("Focus Brown",
@@ -400,8 +400,8 @@ class PresetBank:
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.7,
-            "phi_timing_strength": 0.5, "phi_spatial_strength": 0.5,
+            "phi_lattice_on": True, "phi_personality": 0.3,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.4,
         })
 
         _preset("Theta Drift",
@@ -419,8 +419,8 @@ class PresetBank:
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.7,
-            "phi_timing_strength": 0.5, "phi_spatial_strength": 0.5,
+            "phi_lattice_on": True, "phi_personality": 0.3,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.4,
         })
 
         _preset("Hemispheric Bridge",
@@ -443,8 +443,8 @@ class PresetBank:
             "modal_decay": 0.5, "modal_contralateral": 0.5,
             "polyrhythm_on": False, "coherence_spatial": False,
             "spat_pinna": 0.2, "spat_distance": 0.25,  # subtle phi spatial + contralateral mirror
-            "phi_lattice_on": True, "phi_personality": 0.3,
-            "phi_timing_strength": 0.7, "phi_spatial_strength": 0.8,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.3, "phi_spatial_strength": 0.7,
         })
 
         _preset("Sleep Delta Binaural",
@@ -464,8 +464,8 @@ class PresetBank:
             "feedback_on": False, "temp_ramp_sec": 30.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.4,
-            "phi_timing_strength": 0.6, "phi_spatial_strength": 0.6,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.5,
         })
 
         _preset("Theta Meditation",
@@ -488,8 +488,8 @@ class PresetBank:
             "feedback_on": False, "temp_ramp_sec": 20.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.4,
-            "phi_timing_strength": 0.6, "phi_spatial_strength": 0.6,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.5,
         })
 
         _preset("Alpha Relax",
@@ -510,8 +510,8 @@ class PresetBank:
             "feedback_on": False, "temp_ramp_sec": 15.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.4,
-            "phi_timing_strength": 0.6, "phi_spatial_strength": 0.6,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.5,
         })
 
         _preset("Gamma Focus",
@@ -533,8 +533,8 @@ class PresetBank:
             "isochronic_rate_hz": 40.0, "isochronic_level": 0.12,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.4,
-            "phi_timing_strength": 0.6, "phi_spatial_strength": 0.6,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.5,
         })
 
         _preset("Tinnitus Relief",
@@ -553,8 +553,8 @@ class PresetBank:
             "binaural_on": False, "isochronic_on": False,
             "feedback_on": False, "modal_on": False,
             "polyrhythm_on": False, "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.7,
-            "phi_timing_strength": 0.5, "phi_spatial_strength": 0.5,
+            "phi_lattice_on": True, "phi_personality": 0.3,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.4,
         })
 
         _preset("CC Gentle",
@@ -575,8 +575,8 @@ class PresetBank:
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
             "spat_pinna": 0.2, "spat_distance": 0.2,  # gentle phi spatial
-            "phi_lattice_on": True, "phi_personality": 0.3,
-            "phi_timing_strength": 0.7, "phi_spatial_strength": 0.8,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.3, "phi_spatial_strength": 0.7,
         })
 
         _preset("CC Maximum",
@@ -601,8 +601,8 @@ class PresetBank:
             "polyrhythm_on": True, "polyrhythm_p": 5, "polyrhythm_q": 3,
             "polyrhythm_rate": 1.0, "polyrhythm_amount": 0.3,
             "spat_pinna": 0.3, "spat_distance": 0.35,  # full phi spatial pipeline
-            "phi_lattice_on": True, "phi_personality": 0.3,
-            "phi_timing_strength": 0.7, "phi_spatial_strength": 0.8,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.3, "phi_spatial_strength": 0.7,
         })
 
         _preset("Delta Reset 3Hz",
@@ -624,8 +624,8 @@ class PresetBank:
             "feedback_on": False, "temp_ramp_sec": 60.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.4,
-            "phi_timing_strength": 0.6, "phi_spatial_strength": 0.6,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.5,
         })
 
         _preset("Schumann 7.83Hz",
@@ -649,8 +649,8 @@ class PresetBank:
             "feedback_on": False, "temp_ramp_sec": 15.0,
             "modal_on": False, "polyrhythm_on": False,
             "coherence_spatial": False,
-            "phi_lattice_on": True, "phi_personality": 0.4,
-            "phi_timing_strength": 0.6, "phi_spatial_strength": 0.6,
+            "phi_lattice_on": True, "phi_personality": 0.15,
+            "phi_timing_strength": 0.25, "phi_spatial_strength": 0.5,
         })
 
     def list(self) -> List[str]:
