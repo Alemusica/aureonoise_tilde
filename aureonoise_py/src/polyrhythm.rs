@@ -108,6 +108,23 @@ impl PolyrhythmClock {
         }
     }
 
+    /// Get pan modulation with asymmetric phi-lattice distribution.
+    /// p_pulse distributes grains in left hemisphere using phi position,
+    /// q_pulse distributes in right hemisphere.
+    /// `phi_pos`: position from PhiLattice [0,1] for within-hemisphere spread.
+    pub fn pan_offset_asymmetric(&self, amount: f64, phi_pos: f64) -> f64 {
+        let amt = clamp(amount, 0.0, 1.0);
+        if self.coincidence {
+            0.0
+        } else if self.p_pulse {
+            -amt * (0.3 + 0.7 * clamp(phi_pos, 0.0, 1.0))
+        } else if self.q_pulse {
+            amt * (0.3 + 0.7 * clamp(phi_pos, 0.0, 1.0))
+        } else {
+            0.0
+        }
+    }
+
     /// Was there a coincidence on the last tick?
     pub fn had_coincidence(&self) -> bool {
         self.coincidence

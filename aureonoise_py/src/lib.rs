@@ -1475,7 +1475,15 @@ impl Engine {
         // --- Polyrhythm pan offset (T5.5) ---
         // p_pulse pushes left, q_pulse pushes right, coincidence → center
         if self.params.polyrhythm_on && poly_pan_offset.abs() > 1e-6 {
-            pan = clamp(pan + poly_pan_offset, -1.0, 1.0);
+            if self.params.phi_lattice_on {
+                let phi_pos = self.phi_lattice.spatial_position().abs();
+                let asym_offset = self.polyrhythm.pan_offset_asymmetric(
+                    self.params.polyrhythm_amount, phi_pos
+                );
+                pan = clamp(pan + asym_offset, -1.0, 1.0);
+            } else {
+                pan = clamp(pan + poly_pan_offset, -1.0, 1.0);
+            }
             grain.pan = pan;
         }
 
