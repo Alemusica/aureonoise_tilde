@@ -560,6 +560,77 @@ def measure_envelope_smoothness(mono: np.ndarray) -> Dict:
     }
 
 
+def measure_entropy_quality(mono: np.ndarray) -> Dict:
+    """Measure stochastic quality of rendered audio via turning points test.
+
+    PhitRng (triphase hardware entropy) should produce grain timing with high
+    randomness — no periodic patterns, no obvious repetitions. We measure this
+    using two metrics on the short-time RMS envelope:
+
+    1. Turning points ratio: for a random sequence of length N, the expected
+       number of turning points is 2(N-2)/3. The ratio actual/expected should
+       be near 1.0 for good entropy.
+    2. Mean autocorrelation at moderate lags (0.3-1.0s): measures periodicity.
+       Good entropy = low autocorrelation at these lags.
+
+    Source: PROVISIONAL — PhitRng entropy metric (IT 102026000002875).
+    Turning points: Kendall & Stuart 1969, The Advanced Theory of Statistics.
+
+    Returns:
+        turning_point_ratio: actual/expected turning points (1.0 = random)
+        mean_autocorr_moderate: mean autocorrelation at 0.3-1.0s lags
+    """
+    skip = int(SR * 0.5)
+    if len(mono) <= skip + int(SR * 2.0):
+        return {"turning_point_ratio": 1.0, "mean_autocorr_moderate": 0.0}
+
+    sig = mono[skip:]
+
+    # Compute short-time RMS envelope (50ms windows, 25ms hop)
+    win_samples = int(SR * 0.05)
+    hop = win_samples // 2
+    envelope = []
+    for start in range(0, len(sig) - win_samples, hop):
+        rms = float(np.sqrt(np.mean(sig[start:start + win_samples] ** 2)))
+        envelope.append(rms)
+
+    env = np.array(envelope)
+    if len(env) < 20:
+        return {"turning_point_ratio": 1.0, "mean_autocorr_moderate": 0.0}
+
+    # Turning points test (Kendall & Stuart 1969)
+    # A turning point occurs where env[i-1] < env[i] > env[i+1] or vice versa
+    tp_count = 0
+    for i in range(1, len(env) - 1):
+        if (env[i] > env[i - 1] and env[i] > env[i + 1]) or \
+           (env[i] < env[i - 1] and env[i] < env[i + 1]):
+            tp_count += 1
+    expected_tp = 2.0 * (len(env) - 2) / 3.0
+    tp_ratio = tp_count / expected_tp if expected_tp > 0 else 1.0
+
+    # Autocorrelation at moderate lags (0.3-1.0 seconds)
+    # At 25ms hop: lag 12 = 0.3s, lag 40 = 1.0s
+    hop_sec = hop / SR
+    lag_start = int(0.3 / hop_sec)
+    lag_end = min(int(1.0 / hop_sec), len(env) // 2)
+
+    normed = env - np.mean(env)
+    var = np.sum(normed ** 2)
+    if var < 1e-20 or lag_start >= lag_end:
+        mean_ac = 0.0
+    else:
+        acs = []
+        for lag in range(lag_start, lag_end):
+            ac = float(np.sum(normed[:-lag] * normed[lag:]) / var)
+            acs.append(ac)
+        mean_ac = float(np.mean(acs))
+
+    return {
+        "turning_point_ratio": tp_ratio,
+        "mean_autocorr_moderate": mean_ac,
+    }
+
+
 def measure_entrainment_power(left: np.ndarray, right: np.ndarray,
                                target_hz: float, mode: str) -> Dict:
     """Verify entrainment frequency presence in rendered audio.
@@ -1323,6 +1394,26 @@ def validate_signal(
                 "WARN",
                 "Phi lattice not enabled but profile expects it",
             ))
+
+    # ── 25. ENTROPY QUALITY ───────────────────────────────────
+    # For phi lattice presets: verify grain timing is stochastic (non-periodic).
+    # Turning points ratio near 1.0 = random envelope, far from 1.0 = periodic.
+    # Moderate-lag autocorrelation < 0.5 = no repeating pattern.
+    # Source: PROVISIONAL — PhitRng entropy metric (IT 102026000002875)
+    # Turning points: Kendall & Stuart 1969
+    if profile.phi_lattice:
+        eq = measure_entropy_quality(mono)
+        # Turning points ratio: 0.6-1.4 is reasonable for audio with grain structure
+        # Autocorrelation at 0.3-1.0s lags: < 0.6 means no stuck periodic pattern
+        # (bilateral presets have intentional ~1Hz periodicity → up to ~0.5 autocorr)
+        ok_entropy = eq["mean_autocorr_moderate"] < 0.6
+        checks.append(Check(
+            "entropy_quality", ok_entropy,
+            f"tp_ratio={eq['turning_point_ratio']:.3f}, autocorr_0.3-1s={eq['mean_autocorr_moderate']:.3f}",
+            "moderate-lag autocorrelation < 0.6 (non-periodic)",
+            "WARN",
+            "PhitRng triphase entropy: grain timing should be non-periodic (Kendall & Stuart 1969)",
+        ))
 
     return checks
 
